@@ -78,10 +78,10 @@ class LAQNData():
         laqn_df.to_csv(path.join(self.home_folder, self.filename))
         print("Data saved.")
 
-    def read_csv(self, verbose=True):
+    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
         if verbose:
             print(f"Reading {self.filename}...")
-        return pd.read_csv(self.filepath, index_col="date", parse_dates=True)
+        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
     
     def resample_time(self, df, key, quantile_step, verbose=True):
         if key == "D":
@@ -157,10 +157,10 @@ class HealthData():
         if verbose:
             print(f"Unzipped {file}.")
 
-    def read_csv(self, verbose=True):
+    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
         if verbose:
             print(f"Reading {self.filename}...")
-        return pd.read_csv(self.filepath, index_col="date", parse_dates=True)
+        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
     
     def read_xls(self, sheet_name, verbose=True):
         if verbose:
