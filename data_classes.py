@@ -160,7 +160,7 @@ class HealthData():
     def read_csv(self, verbose=True):
         if verbose:
             print(f"Reading {self.filename}...")
-        return pd.read_csv(self.filepath)
+        return pd.read_csv(self.filepath, index_col="date", parse_dates=True)
     
     def read_xls(self, sheet_name, verbose=True):
         if verbose:
