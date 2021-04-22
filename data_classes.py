@@ -154,8 +154,20 @@ class HealthData():
                 self.filename = path.basename(file)                # reset the file name, path and extension info.
                 _, self.extension = path.splitext(self.filename)
                 self.filepath = path.join(self.home_folder, self.filename)
-        if verbose:
-            print(f"Unzipped {file}.")
+             
+            if verbose:
+                print(f"Unzipped {file}.")
+            if self.extension == ".xls":
+                workbook = xlrd.open_workbook(self.filepath)
+                self.sheets = workbook.sheet_names()
+                if verbose:
+                    print(f"Contains xls sheets: {self.sheets}")
+            elif self.extension == ".xlsx":
+                workbook = load_workbook(self.filepath)
+                self.sheets = workbook.sheetnames
+                if verbose:
+                    print(f"Contains xlsx sheets: {self.sheets}")
+        
 
     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
         if verbose:
