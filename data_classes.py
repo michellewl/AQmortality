@@ -121,6 +121,15 @@ class HealthData():
 
         if not path.exists(self.home_folder):
             makedirs(self.home_folder)
+        if path.exists(self.filepath):
+            if self.extension == ".zip":
+                self.zipfiles = zpf.ZipFile(self.filepath).namelist()
+            elif self.extension == ".xls":
+                workbook = xlrd.open_workbook(self.filepath)
+                self.sheets = workbook.sheet_names()
+            elif self.extension == ".xlsx":
+                workbook = load_workbook(self.filepath)
+                self.sheets = workbook.sheetnames
 
     def download(self, verbose=True):
         request = requests.get(self.url)
