@@ -192,3 +192,27 @@ class HealthData():
             workbook = load_workbook(self.filepath)
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
+        
+class MetData():
+    def __init__(self, home_folder, url="https://bulk.meteostat.net/hourly/03772.csv.gz", filename="hourly_heathrow_met_data.csv"):
+        self.url = url
+        self.home_folder = home_folder
+        self.filename = filename
+        self.filepath = path.join(self.home_folder, self.filename)
+        
+        if not path.exists(self.home_folder):
+            makedirs(self.home_folder)
+            
+    def download(self, verbose=True):
+        columns = ["date", "hour", "temperature", "dew_point", "humidity", "precip", "blank1", "wind_dir", "wind_speed", "peak_gust", "pressure", "blank2", "blank3"]
+        df = pd.read_csv(url, header=None, names=columns).drop(["blank1", "blank2", "blank3"], axis=1)
+        df["date"] = df["date"] + " " + df["hour"].astype(str) +":00"
+        df = df.drop(["hour"], axis=1).set_index("date")
+        df.to_csv(self.filepath)
+        if verbose:
+            print(f"Saved to {self.filename}.")
+            
+    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+        if verbose:
+            print(f"Reading {self.filename}...")
+        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
