@@ -203,14 +203,17 @@ class MetData():
         if not path.exists(self.home_folder):
             makedirs(self.home_folder)
             
-    def download(self, verbose=True):
+    def download(self, verbose=True, save_data=True):
         columns = ["date", "hour", "temperature", "dew_point", "humidity", "precip", "blank1", "wind_dir", "wind_speed", "peak_gust", "pressure", "blank2", "blank3"]
         df = pd.read_csv(url, header=None, names=columns).drop(["blank1", "blank2", "blank3"], axis=1)
         df["date"] = df["date"] + " " + df["hour"].astype(str) +":00"
         df = df.drop(["hour"], axis=1).set_index("date")
-        df.to_csv(self.filepath)
-        if verbose:
-            print(f"Saved to {self.filename}.")
+        if save_data:
+            df.to_csv(self.filepath)
+            if verbose:
+                print(f"Saved to {self.filename}.")
+        else:
+            return df
             
     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
         if verbose:
