@@ -12,6 +12,98 @@ from openpyxl import load_workbook
 
 # London Air Quality Network data class
 
+# class LAQNData():
+#     def __init__(self, url, home_folder, species, start_date, end_date):
+#         self.url = url
+#         self.home_folder = home_folder
+#         self.species = species
+#         self.start_date = start_date
+#         self.end_date = end_date
+#         self.filename = f"{self.species}_hourly_{self.start_date}_{self.end_date}.csv"
+#         self.filepath = path.join(self.home_folder, self.filename)
+        
+#         if not path.exists(self.home_folder):
+#             makedirs(self.home_folder)
+        
+#         london_sites = requests.get(self.url)
+#         self.sites_df = pd.DataFrame(london_sites.json()['Sites']['Site'])
+#         self.site_codes = self.sites_df["@SiteCode"].tolist()
+
+#     def download(self, verbose=True):
+#         laqn_df = pd.DataFrame()
+        
+#         if verbose:
+#             progress_bar = tqdm(self.site_codes)
+#         else:
+#             progress_bar = self.site_codes
+            
+#         for site_code in progress_bar:
+#             if verbose:
+#                 progress_bar.set_description(f'Working on site {site_code}')
+#             url_species = f"http://api.erg.kcl.ac.uk/AirQuality/Data/SiteSpecies/SiteCode={site_code}/SpeciesCode={self.species}/StartDate={self.start_date}/EndDate={self.end_date}/csv"
+#             cur_df = pd.read_csv(url_species)
+#             cur_df.columns = ["date", site_code]
+#             cur_df.set_index("date", drop=True, inplace=True)
+
+#             try:
+#                 if laqn_df.empty:
+#                     laqn_df = cur_df.copy()
+#                 else:
+#                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
+
+#             except ValueError:  # Trying to join with duplicate column names
+#                 rename_dict = {}
+#                 for x in list(set(cur_df.columns).intersection(laqn_df.columns)):
+#                     rename_dict.update({x: f"{x}_"})
+#                     print(f"Renamed duplicated column:\n{rename_dict}")
+#                 laqn_df.rename(mapper=rename_dict, axis="columns", inplace=True)
+#                 if laqn_df.empty:
+#                     laqn_df = cur_df.copy()
+#                 else:
+#                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
+#                 if verbose:
+#                     print(f"Joined.")
+
+#             except KeyError:  # Trying to join along indexes that don't match
+#                 print(f"Troubleshooting {site_code}...")
+#                 cur_df.index = cur_df.index + ":00"
+#                 if laqn_df.empty:
+#                     laqn_df = cur_df.copy()
+#                 else:
+#                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
+#                 print(f"{site_code} joined.")
+
+#         print("Data download complete. Removing sites with 0 data...")
+#         laqn_df.dropna(axis="columns", how="all", inplace=True)
+#         laqn_df.to_csv(path.join(self.home_folder, self.filename))
+#         print("Data saved.")
+
+#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+#         if verbose:
+#             print(f"Reading {self.filename}...")
+#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+    
+#     def resample_time(self, df, key, quantile_step, verbose=True):
+#         if key == "D":
+#             keyword = "daily"
+#         if key == "W":
+#             keyword = "weekly"
+
+#         save_folder = path.join(self.home_folder, keyword)
+#         if not path.exists(save_folder):
+#             makedirs(save_folder)
+
+#         aggregation = np.round(np.arange(0, 1 + quantile_step, quantile_step), 2).tolist()
+
+#         for method in aggregation:
+#             aggregated_df = df.copy().resample(key).quantile(method)
+#             method = f"{int(method * 100)}th_quantile"
+#             aggregated_df.to_csv(path.join(save_folder, f"{self.species}_{keyword}_{method}.csv"), index=True)
+#             if verbose:
+#                 print(f"Dataframe shape {aggregated_df.shape}")
+#         if verbose:
+#             print("Done.")
+
 class LAQNData():
     def __init__(self, url, home_folder, species, start_date, end_date):
         self.url = url
@@ -73,15 +165,54 @@ class LAQNData():
                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
                 print(f"{site_code} joined.")
 
-        print("Data download complete. Removing sites with 0 data...")
+        #print("Data download complete. Removing sites with 0 data...")
         laqn_df.dropna(axis="columns", how="all", inplace=True)
-        laqn_df.to_csv(path.join(self.home_folder, self.filename))
-        print("Data saved.")
+        #laqn_df.to_csv(path.join(self.home_folder, self.filename))
+        #print("Data saved.")
+        return laqn_df
+        
+    def download_and_log(self):
+        with wandb.init(project="AQmortality", job_type="load-data") as run:
+            df = self.download()
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "laqn-raw", type="dataset",
+                description=f"Raw LAQN {self.species} data from {self.start_date} to {self.end_date}, split according to site codes.",
+                metadata={"source":self.url,
+                         "shapes":[df[column].shape for column in columns],
+                         "columns":columns})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
 
     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
         if verbose:
             print(f"Reading {self.filename}...")
         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+    
+    def read(self, sites):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            raw_data_artifact = run.use_artifact('laqn-raw:latest')
+            data_folder = raw_data_artifact.download()
+            df = pd.DataFrame()
+            empty_sites = []
+            for site in sites:
+                filepath = path.join(data_folder, f"{site}.npz")
+                try:
+                    data = np.load(filepath, allow_pickle=True)
+                except FileNotFoundError:
+                    empty_sites.append(site)
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+            empty_sites = ", ".join(empty_sites)
+            print(f"No data for site codes: {empty_sites}")
+        return df
     
     def resample_time(self, df, key, quantile_step, verbose=True):
         if key == "D":
@@ -103,6 +234,42 @@ class LAQNData():
                 print(f"Dataframe shape {aggregated_df.shape}")
         if verbose:
             print("Done.")
+        
+    def resample_time_and_log(self, date_index):
+        
+        with wandb.init(project="AQmortality", job_type="resample-data") as run:
+            raw_data_artifact = run.use_artifact('laqn-raw:latest')
+            data_folder = raw_data_artifact.download()
+            df = pd.DataFrame()
+            for site in sites:
+                filepath = path.join(data_folder, f"{site}.npz")
+                try:
+                    data = np.load(filepath, allow_pickle=True)
+                except FileNotFoundError:
+                    continue
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+
+            df = df.loc[df.index < date_index.max()]
+            df = df.loc[df.index > date_index.min()]
+            resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).mean()
+            columns = resampled_df.columns.to_list()
+            resample_data = wandb.Artifact(
+                "laqn-resample", type="dataset",
+                description=f"Resampled LAQN {self.species} data from {self.start_date} to {self.end_date}, split according to site codes.",
+                metadata={"source":self.url,
+                         "shapes":[resampled_df[column].shape for column in columns],
+                         "sites":columns},
+                        "species":self.species,
+                        "start_date":self.start_date,
+                        "end_date":self.end_date)
+            for column in columns:
+                with resample_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=resampled_df[column].values)
+
+            run.log_artifact(resample_data)
             
 # Office for National Statistics health data class
 
@@ -193,29 +360,74 @@ class HealthData():
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
         
-class MetData():
-    def __init__(self, home_folder, url="https://bulk.meteostat.net/hourly/03772.csv.gz", filename="hourly_heathrow_met_data.csv"):
-        self.url = url
-        self.home_folder = home_folder
-        self.filename = filename
-        self.filepath = path.join(self.home_folder, self.filename)
+# class MetData():
+#     def __init__(self, home_folder, url="https://bulk.meteostat.net/hourly/03772.csv.gz", filename="hourly_heathrow_met_data.csv"):
+#         self.url = url
+#         self.home_folder = home_folder
+#         self.filename = filename
+#         self.filepath = path.join(self.home_folder, self.filename)
         
-        if not path.exists(self.home_folder):
-            makedirs(self.home_folder)
+#         if not path.exists(self.home_folder):
+#             makedirs(self.home_folder)
             
-    def download(self, verbose=True, save_data=True):
+#     def download(self, verbose=True, save_data=True):
+#         columns = ["date", "hour", "temperature", "dew_point", "humidity", "precip", "blank1", "wind_dir", "wind_speed", "peak_gust", "pressure", "blank2", "blank3"]
+#         df = pd.read_csv(url, header=None, names=columns).drop(["blank1", "blank2", "blank3"], axis=1)
+#         df["date"] = df["date"] + " " + df["hour"].astype(str) +":00"
+#         df = df.drop(["hour"], axis=1).set_index("date")
+#         if save_data:
+#             df.to_csv(self.filepath)
+#             if verbose:
+#                 print(f"Saved to {self.filename}.")
+#         else:
+#             return df
+            
+#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+#         if verbose:
+#             print(f"Reading {self.filename}...")
+#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+
+# Move this to a separate .py file when finished editing
+
+class MetData():
+    def __init__(self, station):
+        self.station = station
+            
+    def download(self, url):
         columns = ["date", "hour", "temperature", "dew_point", "humidity", "precip", "blank1", "wind_dir", "wind_speed", "peak_gust", "pressure", "blank2", "blank3"]
         df = pd.read_csv(url, header=None, names=columns).drop(["blank1", "blank2", "blank3"], axis=1)
         df["date"] = df["date"] + " " + df["hour"].astype(str) +":00"
         df = df.drop(["hour"], axis=1).set_index("date")
-        if save_data:
-            df.to_csv(self.filepath)
-            if verbose:
-                print(f"Saved to {self.filename}.")
-        else:
-            return df
-            
-    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
-        if verbose:
-            print(f"Reading {self.filename}...")
-        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+        return df
+        
+    def download_and_log(self, url):
+        with wandb.init(project="AQmortality", job_type="load-data") as run:
+            df = self.download(url)
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "met-raw", type="dataset",
+                description=f"Raw meteorology data from the {self.station} weather station, split according to meteorological variables.",
+                metadata={"source":url,
+                         "shapes":[df[column].shape for column in columns],
+                         "columns":columns})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
+    
+    def read(self, variables):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            raw_data_artifact = run.use_artifact('met-raw:latest')
+            data_folder = raw_data_artifact.download()
+            df = pd.DataFrame()
+            for variable in variables:
+                filepath = path.join(data_folder, f"{variable}.npz")
+                data = np.load(filepath, allow_pickle=True)
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+        return df
