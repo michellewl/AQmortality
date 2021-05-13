@@ -9,6 +9,7 @@ import zipfile as zpf
 import matplotlib.pyplot as plt
 import xlrd
 from openpyxl import load_workbook
+import wandb
 
 # London Air Quality Network data class
 
@@ -105,17 +106,11 @@ from openpyxl import load_workbook
 #             print("Done.")
 
 class LAQNData():
-    def __init__(self, url, home_folder, species, start_date, end_date):
+    def __init__(self, url, species, start_date, end_date):
         self.url = url
-        self.home_folder = home_folder
         self.species = species
         self.start_date = start_date
         self.end_date = end_date
-        self.filename = f"{self.species}_hourly_{self.start_date}_{self.end_date}.csv"
-        self.filepath = path.join(self.home_folder, self.filename)
-        
-        if not path.exists(self.home_folder):
-            makedirs(self.home_folder)
         
         london_sites = requests.get(self.url)
         self.sites_df = pd.DataFrame(london_sites.json()['Sites']['Site'])
@@ -167,8 +162,6 @@ class LAQNData():
 
         #print("Data download complete. Removing sites with 0 data...")
         laqn_df.dropna(axis="columns", how="all", inplace=True)
-        #laqn_df.to_csv(path.join(self.home_folder, self.filename))
-        #print("Data saved.")
         return laqn_df
         
     def download_and_log(self):
@@ -189,10 +182,10 @@ class LAQNData():
 
             run.log_artifact(raw_data)
 
-    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
-        if verbose:
-            print(f"Reading {self.filename}...")
-        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+#         if verbose:
+#             print(f"Reading {self.filename}...")
+#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
     
     def read(self, sites):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
@@ -214,28 +207,28 @@ class LAQNData():
             print(f"No data for site codes: {empty_sites}")
         return df
     
-    def resample_time(self, df, key, quantile_step, verbose=True):
-        if key == "D":
-            keyword = "daily"
-        if key == "W":
-            keyword = "weekly"
+#     def resample_time(self, df, key, quantile_step, verbose=True):
+#         if key == "D":
+#             keyword = "daily"
+#         if key == "W":
+#             keyword = "weekly"
 
-        save_folder = path.join(self.home_folder, keyword)
-        if not path.exists(save_folder):
-            makedirs(save_folder)
+#         save_folder = path.join(self.home_folder, keyword)
+#         if not path.exists(save_folder):
+#             makedirs(save_folder)
 
-        aggregation = np.round(np.arange(0, 1 + quantile_step, quantile_step), 2).tolist()
+#         aggregation = np.round(np.arange(0, 1 + quantile_step, quantile_step), 2).tolist()
 
-        for method in aggregation:
-            aggregated_df = df.copy().resample(key).quantile(method)
-            method = f"{int(method * 100)}th_quantile"
-            aggregated_df.to_csv(path.join(save_folder, f"{self.species}_{keyword}_{method}.csv"), index=True)
-            if verbose:
-                print(f"Dataframe shape {aggregated_df.shape}")
-        if verbose:
-            print("Done.")
+#         for method in aggregation:
+#             aggregated_df = df.copy().resample(key).quantile(method)
+#             method = f"{int(method * 100)}th_quantile"
+#             aggregated_df.to_csv(path.join(save_folder, f"{self.species}_{keyword}_{method}.csv"), index=True)
+#             if verbose:
+#                 print(f"Dataframe shape {aggregated_df.shape}")
+#         if verbose:
+#             print("Done.")
         
-    def resample_time_and_log(self, date_index):
+    def resample_time_and_log(self, sites, date_index):
         
         with wandb.init(project="AQmortality", job_type="resample-data") as run:
             raw_data_artifact = run.use_artifact('laqn-raw:latest')
@@ -261,16 +254,17 @@ class LAQNData():
                 description=f"Resampled LAQN {self.species} data from {self.start_date} to {self.end_date}, split according to site codes.",
                 metadata={"source":self.url,
                          "shapes":[resampled_df[column].shape for column in columns],
-                         "sites":columns},
+                         "sites":columns,
                         "species":self.species,
                         "start_date":self.start_date,
-                        "end_date":self.end_date)
+                        "end_date":self.end_date})
             for column in columns:
                 with resample_data.new_file(column + ".npz", mode="wb") as file:
                         np.savez(file, x=df.index, y=resampled_df[column].values)
 
             run.log_artifact(resample_data)
-            
+        
+        return resampled_df  
 # Office for National Statistics health data class
 
 # Data class definition
