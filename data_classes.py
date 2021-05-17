@@ -92,24 +92,27 @@ class LAQNData():
 
 
     
-    def read(self, sites, artifact):
+    def read(self, artifact, sites=False):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
             raw_data_artifact = run.use_artifact(f'{artifact}:latest')
             data_folder = raw_data_artifact.download()
             df = pd.DataFrame()
-            empty_sites = []
-            for site in sites:
-                filepath = path.join(data_folder, f"{site}.npz")
-                try:
-                    data = np.load(filepath, allow_pickle=True)
-                except FileNotFoundError:
-                    empty_sites.append(site)
-                if df.empty:
-                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                else:
-                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
-            empty_sites = ", ".join(empty_sites)
-            print(f"No data for site codes: {empty_sites}")
+            if artifact == "laqn-regional":
+                filepath = path.join(data_folder, f"mean_{self.species}.npz")
+                data = np.load(filepath, allow_pickle=True)
+                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
+            else:
+                for site in sites:
+                    filepath = path.join(data_folder, f"{site}.npz")
+                    try:
+                        data = np.load(filepath, allow_pickle=True)
+                        if df.empty:
+                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                        else:
+                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                    except FileNotFoundError:
+                        continue
+            
         return df
     
 
@@ -168,7 +171,7 @@ class LAQNData():
                 else:
                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
 
-            df = pd.DataFrame(df.mean(axis=1), columns=["mean_NO2"])
+            df = pd.DataFrame(df.mean(axis=1), columns=[f"mean_{self.species}"])
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "laqn-regional", type="dataset",
@@ -322,15 +325,13 @@ class HealthData():
             df = pop_df.join(mort_df).dropna()
             df["deaths_per_capita"] = df["deaths"]/df["population"]
             
-            columns = df.columns.to_list()
             scale_data = wandb.Artifact(
                 "mortality-scaled", type="dataset",
                 description=f"Scaled mortality data per capita for total London region.",
-                metadata={"shapes":[df[column].shape for column in columns],
-                         "columns":columns})
-            for column in columns:
-                with scale_data.new_file(column + ".npz", mode="wb") as file:
-                        np.savez(file, x=df.index, y=df[column].values)
+                metadata={"shapes":df["deaths_per_capita"].shape,
+                         "columns":"deaths"})
+            with scale_data.new_file("deaths" + ".npz", mode="wb") as file:
+                np.savez(file, x=df.index, y=df["deaths_per_capita"].values)
 
             run.log_artifact(scale_data)
         
