@@ -269,31 +269,106 @@ class LAQNData():
 
 # Data class definition
 
+# class HealthData():
+#     def __init__(self, home_folder, url=False, filename=False):
+#         self.home_folder = home_folder
+#         if url:
+#             self.url = url
+#             self.filename = path.basename(self.url)
+#         elif filename:
+#             self.filename = filename
+#         _, self.extension = path.splitext(self.filename)
+#         self.filepath = path.join(self.home_folder, self.filename)
+
+#         if not path.exists(self.home_folder):
+#             makedirs(self.home_folder)
+#         if path.exists(self.filepath):
+#             if self.extension == ".zip":
+#                 self.zipfiles = zpf.ZipFile(self.filepath).namelist()
+#             elif self.extension == ".xls":
+#                 workbook = xlrd.open_workbook(self.filepath)
+#                 self.sheets = workbook.sheet_names()
+#             elif self.extension == ".xlsx":
+#                 workbook = load_workbook(self.filepath)
+#                 self.sheets = workbook.sheetnames
+
+#     def download(self, verbose=True):
+#         request = requests.get(self.url)
+#         file = open(self.filepath, 'wb')
+#         file.write(request.content)
+#         file.close()
+#         if verbose:
+#             print(f"Saved to {self.filename}")
+#         if self.extension == ".zip":
+#             self.zipfiles = zpf.ZipFile(self.filepath).namelist()
+#             if verbose:
+#                 print("Contains zip files:")
+#                 [print(f"[{i}] {self.zipfiles[i]}") for i in range(len(self.zipfiles))]
+#         elif self.extension == ".xls":
+#             workbook = xlrd.open_workbook(self.filepath)
+#             self.sheets = workbook.sheet_names()
+#             if verbose:
+#                 print(f"Contains xls sheets: {self.sheets}")
+#         elif self.extension == ".xlsx":
+#             workbook = load_workbook(self.filepath)
+#             self.sheets = workbook.sheetnames
+#             if verbose:
+#                 print(f"Contains xlsx sheets: {self.sheets}")
+                
+#     def unzip(self, file="all", verbose=True):
+#         with zpf.ZipFile(self.filepath, 'r') as zip_ref:
+#             if file =="all":                                       # Extract all zipped files.
+#                 zip_ref.extractall(self.home_folder)
+#             else:                                                  # Extract one specified file,
+#                 zip_ref.extract(file, self.home_folder)            # then
+#                 self.filename = path.basename(file)                # reset the file name, path and extension info.
+#                 _, self.extension = path.splitext(self.filename)
+#                 self.filepath = path.join(self.home_folder, self.filename)
+             
+#             if verbose:
+#                 print(f"Unzipped {file}.")
+#             if self.extension == ".xls":
+#                 workbook = xlrd.open_workbook(self.filepath)
+#                 self.sheets = workbook.sheet_names()
+#                 if verbose:
+#                     print(f"Contains xls sheets: {self.sheets}")
+#             elif self.extension == ".xlsx":
+#                 workbook = load_workbook(self.filepath)
+#                 self.sheets = workbook.sheetnames
+#                 if verbose:
+#                     print(f"Contains xlsx sheets: {self.sheets}")
+        
+
+#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+#         if verbose:
+#             print(f"Reading {self.filename}...")
+#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+    
+#     def read_xls(self, sheet_name, verbose=True):
+#         if verbose:
+#             print(f"Reading {self.filename}...")
+#         if self.extension == ".xls":
+#             return pd.read_excel(self.filepath, sheet_name)
+#         elif self.extension == ".xlsx":
+#             workbook = load_workbook(self.filepath)
+#             worksheet = workbook[sheet_name]
+#             return pd.DataFrame(worksheet.values)
+
+# Move to data_classes.py when finished editing.
+
 class HealthData():
-    def __init__(self, home_folder, url=False, filename=False):
-        self.home_folder = home_folder
-        if url:
-            self.url = url
-            self.filename = path.basename(self.url)
-        elif filename:
-            self.filename = filename
+    def __init__(self):
+        self.tmp_folder = path.join(path.abspath(""), "tmp")
+        
+        if not path.exists(self.tmp_folder):
+            makedirs(self.tmp_folder)
+
+    def download(self, url, verbose=False):
+        self.filename = path.basename(url)
         _, self.extension = path.splitext(self.filename)
-        self.filepath = path.join(self.home_folder, self.filename)
-
-        if not path.exists(self.home_folder):
-            makedirs(self.home_folder)
-        if path.exists(self.filepath):
-            if self.extension == ".zip":
-                self.zipfiles = zpf.ZipFile(self.filepath).namelist()
-            elif self.extension == ".xls":
-                workbook = xlrd.open_workbook(self.filepath)
-                self.sheets = workbook.sheet_names()
-            elif self.extension == ".xlsx":
-                workbook = load_workbook(self.filepath)
-                self.sheets = workbook.sheetnames
-
-    def download(self, verbose=True):
-        request = requests.get(self.url)
+        self.filepath = path.join(self.tmp_folder, self.filename)
+        
+        request = requests.get(url)
         file = open(self.filepath, 'wb')
         file.write(request.content)
         file.close()
@@ -315,15 +390,15 @@ class HealthData():
             if verbose:
                 print(f"Contains xlsx sheets: {self.sheets}")
                 
-    def unzip(self, file="all", verbose=True):
+    def unzip(self, file="all", verbose=False):
         with zpf.ZipFile(self.filepath, 'r') as zip_ref:
             if file =="all":                                       # Extract all zipped files.
-                zip_ref.extractall(self.home_folder)
+                zip_ref.extractall(self.tmp_folder)
             else:                                                  # Extract one specified file,
-                zip_ref.extract(file, self.home_folder)            # then
+                zip_ref.extract(file, self.tmp_folder)            # then
                 self.filename = path.basename(file)                # reset the file name, path and extension info.
                 _, self.extension = path.splitext(self.filename)
-                self.filepath = path.join(self.home_folder, self.filename)
+                self.filepath = path.join(self.tmp_folder, self.filename)
              
             if verbose:
                 print(f"Unzipped {file}.")
@@ -338,13 +413,47 @@ class HealthData():
                 if verbose:
                     print(f"Contains xlsx sheets: {self.sheets}")
         
+    def download_and_log(self, region_code, start_year, end_year, url_dict):
+        with wandb.init(project="AQmortality", job_type="load-data") as run:
+            df = pd.DataFrame()
 
+            for year in range(start_year, end_year+1):
+                url = url_dict[year]
+
+                if year == start_year or not url == urls[year-1]:
+                    self.download(url, verbose=False)
+                    if self.extension == ".zip":
+                        self.unzip(self.zipfiles[0], verbose=False)
+                    adhoc_df = self.read_xls(self.sheets[-1], verbose=False)
+                    adhoc_df.columns = range(adhoc_df.shape[1])
+                    adhoc_df = adhoc_df.loc[adhoc_df[3] == region_code, [0, 1, 2, 3, 4]]
+                    adhoc_df.columns = ["year", "month", "day", "region_code", "deaths"]
+                    adhoc_df["date"] = pd.to_datetime(adhoc_df[["year", "month", "day"]])
+
+                df = df.append(adhoc_df.loc[adhoc_df["year"] == year, ["date", "deaths"]].copy().set_index("date"))
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "mortality-raw", type="dataset",
+                description=f"Raw daily mortality data for total region {region_code}. Data is extracted from source Excel files (not logged using Weights and Biases).",
+                metadata={"source":url_dict,
+                         "shapes":[df[column].shape for column in columns],
+                         "columns":columns})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
+        
+        [remove(path.join(self.tmp_folder, file)) for file in listdir(self.tmp_folder)]
+        
     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
         if verbose:
             print(f"Reading {self.filename}...")
         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
     
-    def read_xls(self, sheet_name, verbose=True):
+    def read_xls(self, sheet_name, verbose=False):
         if verbose:
             print(f"Reading {self.filename}...")
         if self.extension == ".xls":
@@ -353,6 +462,16 @@ class HealthData():
             workbook = load_workbook(self.filepath)
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
+        
+    def read(self):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            raw_data_artifact = run.use_artifact('mortality-raw:latest')
+            data_folder = raw_data_artifact.download()
+            df = pd.DataFrame()
+            filepath = path.join(data_folder, f"deaths.npz")
+            data = np.load(filepath, allow_pickle=True)
+            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["deaths"])
+        return df
         
 # class MetData():
 #     def __init__(self, home_folder, url="https://bulk.meteostat.net/hourly/03772.csv.gz", filename="hourly_heathrow_met_data.csv"):
