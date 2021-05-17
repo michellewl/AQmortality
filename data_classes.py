@@ -92,9 +92,9 @@ class LAQNData():
 
 
     
-    def read(self, sites):
+    def read(self, sites, artifact):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact('laqn-raw:latest')
+            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
             data_folder = raw_data_artifact.download()
             df = pd.DataFrame()
             empty_sites = []
@@ -146,11 +146,45 @@ class LAQNData():
                         "end_date":self.end_date})
             for column in columns:
                 with resample_data.new_file(column + ".npz", mode="wb") as file:
-                        np.savez(file, x=df.index, y=resampled_df[column].values)
+                        np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
 
             run.log_artifact(resample_data)
         
         return resampled_df  
+    
+    def regional_average_and_log(self, sites):
+        with wandb.init(project="AQmortality", job_type="regional-average-data") as run:
+            daily_data_artifact = run.use_artifact('laqn-resample:latest')
+            data_folder = daily_data_artifact.download()
+            df = pd.DataFrame()
+            for site in sites:
+                filepath = path.join(data_folder, f"{site}.npz")
+                try:
+                    data = np.load(filepath, allow_pickle=True)
+                except FileNotFoundError:
+                    continue
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+
+            df = pd.DataFrame(df.mean(axis=1), columns=["mean_NO2"])
+            columns = df.columns.to_list()
+            regional_data = wandb.Artifact(
+                "laqn-regional", type="dataset",
+                description=f"Regional average LAQN {self.species} data from {self.start_date} to {self.end_date}.",
+                metadata={"source":self.url,
+                         "shapes":[df[column].shape for column in columns],
+                         "species":self.species,
+                        "start_date":self.start_date,
+                        "end_date":self.end_date})
+            for column in columns:
+                with regional_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(regional_data)
+        
+        return df
 
     
 # Office for National Statistics health data class
@@ -262,9 +296,9 @@ class HealthData():
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
         
-    def read(self):
+    def read(self, artifact):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact('mortality-raw:latest')
+            raw_data_artifact = run.use_artifact(f"{artifact}:latest")
             data_folder = raw_data_artifact.download()
             filepath = path.join(data_folder, f"deaths.npz")
             data = np.load(filepath, allow_pickle=True)
@@ -334,9 +368,9 @@ class MetData():
 
             run.log_artifact(raw_data)
     
-    def read(self, variables):
+    def read(self, variables, artifact):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact('met-raw:latest')
+            raw_data_artifact = run.use_artifact(f"{artifact}:latest")
             data_folder = raw_data_artifact.download()
             df = pd.DataFrame()
             for variable in variables:
@@ -455,9 +489,9 @@ class PopData():
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
         
-    def read(self):
+    def read(self, artifact):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact('population-raw:latest')
+            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
             data_folder = raw_data_artifact.download()
             filepath = path.join(data_folder, f"population.npz")
             data = np.load(filepath, allow_pickle=True)
