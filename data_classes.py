@@ -382,6 +382,38 @@ class MetData():
                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
         return df
     
+    def resample_time_and_log(self, date_index):
+        variables = ["temperature", "dew_point", "humidity", "precip", "wind_dir", "wind_speed", "peak_gust", "pressure"]
+        
+        with wandb.init(project="AQmortality", job_type="resample-data") as run:
+            raw_data_artifact = run.use_artifact('met-raw:latest')
+            data_folder = raw_data_artifact.download()
+            df = pd.DataFrame()
+            for variable in variables:
+                filepath = path.join(data_folder, f"{variable}.npz")
+                data = np.load(filepath, allow_pickle=True)
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+
+            df = df.loc[df.index < date_index.max()]
+            df = df.loc[df.index > date_index.min()]
+            resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).mean()
+            columns = resampled_df.columns.to_list()
+            resample_data = wandb.Artifact(
+                "met-resample", type="dataset",
+                description=f"Resampled meteorology data from the {self.station} weather station, split according to meteorological variables.",
+                metadata={"shapes":[resampled_df[column].shape for column in columns],
+                         "columns":columns})
+            for column in columns:
+                with resample_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
+
+            run.log_artifact(resample_data)
+        
+        return resampled_df
+    
     
 # Population data class
 
