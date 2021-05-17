@@ -13,98 +13,6 @@ import wandb
 
 # London Air Quality Network data class
 
-# class LAQNData():
-#     def __init__(self, url, home_folder, species, start_date, end_date):
-#         self.url = url
-#         self.home_folder = home_folder
-#         self.species = species
-#         self.start_date = start_date
-#         self.end_date = end_date
-#         self.filename = f"{self.species}_hourly_{self.start_date}_{self.end_date}.csv"
-#         self.filepath = path.join(self.home_folder, self.filename)
-        
-#         if not path.exists(self.home_folder):
-#             makedirs(self.home_folder)
-        
-#         london_sites = requests.get(self.url)
-#         self.sites_df = pd.DataFrame(london_sites.json()['Sites']['Site'])
-#         self.site_codes = self.sites_df["@SiteCode"].tolist()
-
-#     def download(self, verbose=True):
-#         laqn_df = pd.DataFrame()
-        
-#         if verbose:
-#             progress_bar = tqdm(self.site_codes)
-#         else:
-#             progress_bar = self.site_codes
-            
-#         for site_code in progress_bar:
-#             if verbose:
-#                 progress_bar.set_description(f'Working on site {site_code}')
-#             url_species = f"http://api.erg.kcl.ac.uk/AirQuality/Data/SiteSpecies/SiteCode={site_code}/SpeciesCode={self.species}/StartDate={self.start_date}/EndDate={self.end_date}/csv"
-#             cur_df = pd.read_csv(url_species)
-#             cur_df.columns = ["date", site_code]
-#             cur_df.set_index("date", drop=True, inplace=True)
-
-#             try:
-#                 if laqn_df.empty:
-#                     laqn_df = cur_df.copy()
-#                 else:
-#                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
-
-#             except ValueError:  # Trying to join with duplicate column names
-#                 rename_dict = {}
-#                 for x in list(set(cur_df.columns).intersection(laqn_df.columns)):
-#                     rename_dict.update({x: f"{x}_"})
-#                     print(f"Renamed duplicated column:\n{rename_dict}")
-#                 laqn_df.rename(mapper=rename_dict, axis="columns", inplace=True)
-#                 if laqn_df.empty:
-#                     laqn_df = cur_df.copy()
-#                 else:
-#                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
-#                 if verbose:
-#                     print(f"Joined.")
-
-#             except KeyError:  # Trying to join along indexes that don't match
-#                 print(f"Troubleshooting {site_code}...")
-#                 cur_df.index = cur_df.index + ":00"
-#                 if laqn_df.empty:
-#                     laqn_df = cur_df.copy()
-#                 else:
-#                     laqn_df = laqn_df.join(cur_df.copy(), how="outer")
-#                 print(f"{site_code} joined.")
-
-#         print("Data download complete. Removing sites with 0 data...")
-#         laqn_df.dropna(axis="columns", how="all", inplace=True)
-#         laqn_df.to_csv(path.join(self.home_folder, self.filename))
-#         print("Data saved.")
-
-#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
-#         if verbose:
-#             print(f"Reading {self.filename}...")
-#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
-    
-#     def resample_time(self, df, key, quantile_step, verbose=True):
-#         if key == "D":
-#             keyword = "daily"
-#         if key == "W":
-#             keyword = "weekly"
-
-#         save_folder = path.join(self.home_folder, keyword)
-#         if not path.exists(save_folder):
-#             makedirs(save_folder)
-
-#         aggregation = np.round(np.arange(0, 1 + quantile_step, quantile_step), 2).tolist()
-
-#         for method in aggregation:
-#             aggregated_df = df.copy().resample(key).quantile(method)
-#             method = f"{int(method * 100)}th_quantile"
-#             aggregated_df.to_csv(path.join(save_folder, f"{self.species}_{keyword}_{method}.csv"), index=True)
-#             if verbose:
-#                 print(f"Dataframe shape {aggregated_df.shape}")
-#         if verbose:
-#             print("Done.")
-
 class LAQNData():
     def __init__(self, url, species, start_date, end_date):
         self.url = url
@@ -182,10 +90,7 @@ class LAQNData():
 
             run.log_artifact(raw_data)
 
-#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
-#         if verbose:
-#             print(f"Reading {self.filename}...")
-#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+
     
     def read(self, sites):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
@@ -207,26 +112,7 @@ class LAQNData():
             print(f"No data for site codes: {empty_sites}")
         return df
     
-#     def resample_time(self, df, key, quantile_step, verbose=True):
-#         if key == "D":
-#             keyword = "daily"
-#         if key == "W":
-#             keyword = "weekly"
 
-#         save_folder = path.join(self.home_folder, keyword)
-#         if not path.exists(save_folder):
-#             makedirs(save_folder)
-
-#         aggregation = np.round(np.arange(0, 1 + quantile_step, quantile_step), 2).tolist()
-
-#         for method in aggregation:
-#             aggregated_df = df.copy().resample(key).quantile(method)
-#             method = f"{int(method * 100)}th_quantile"
-#             aggregated_df.to_csv(path.join(save_folder, f"{self.species}_{keyword}_{method}.csv"), index=True)
-#             if verbose:
-#                 print(f"Dataframe shape {aggregated_df.shape}")
-#         if verbose:
-#             print("Done.")
         
     def resample_time_and_log(self, sites, date_index):
         
@@ -265,96 +151,9 @@ class LAQNData():
             run.log_artifact(resample_data)
         
         return resampled_df  
-# Office for National Statistics health data class
 
-# Data class definition
-
-# class HealthData():
-#     def __init__(self, home_folder, url=False, filename=False):
-#         self.home_folder = home_folder
-#         if url:
-#             self.url = url
-#             self.filename = path.basename(self.url)
-#         elif filename:
-#             self.filename = filename
-#         _, self.extension = path.splitext(self.filename)
-#         self.filepath = path.join(self.home_folder, self.filename)
-
-#         if not path.exists(self.home_folder):
-#             makedirs(self.home_folder)
-#         if path.exists(self.filepath):
-#             if self.extension == ".zip":
-#                 self.zipfiles = zpf.ZipFile(self.filepath).namelist()
-#             elif self.extension == ".xls":
-#                 workbook = xlrd.open_workbook(self.filepath)
-#                 self.sheets = workbook.sheet_names()
-#             elif self.extension == ".xlsx":
-#                 workbook = load_workbook(self.filepath)
-#                 self.sheets = workbook.sheetnames
-
-#     def download(self, verbose=True):
-#         request = requests.get(self.url)
-#         file = open(self.filepath, 'wb')
-#         file.write(request.content)
-#         file.close()
-#         if verbose:
-#             print(f"Saved to {self.filename}")
-#         if self.extension == ".zip":
-#             self.zipfiles = zpf.ZipFile(self.filepath).namelist()
-#             if verbose:
-#                 print("Contains zip files:")
-#                 [print(f"[{i}] {self.zipfiles[i]}") for i in range(len(self.zipfiles))]
-#         elif self.extension == ".xls":
-#             workbook = xlrd.open_workbook(self.filepath)
-#             self.sheets = workbook.sheet_names()
-#             if verbose:
-#                 print(f"Contains xls sheets: {self.sheets}")
-#         elif self.extension == ".xlsx":
-#             workbook = load_workbook(self.filepath)
-#             self.sheets = workbook.sheetnames
-#             if verbose:
-#                 print(f"Contains xlsx sheets: {self.sheets}")
-                
-#     def unzip(self, file="all", verbose=True):
-#         with zpf.ZipFile(self.filepath, 'r') as zip_ref:
-#             if file =="all":                                       # Extract all zipped files.
-#                 zip_ref.extractall(self.home_folder)
-#             else:                                                  # Extract one specified file,
-#                 zip_ref.extract(file, self.home_folder)            # then
-#                 self.filename = path.basename(file)                # reset the file name, path and extension info.
-#                 _, self.extension = path.splitext(self.filename)
-#                 self.filepath = path.join(self.home_folder, self.filename)
-             
-#             if verbose:
-#                 print(f"Unzipped {file}.")
-#             if self.extension == ".xls":
-#                 workbook = xlrd.open_workbook(self.filepath)
-#                 self.sheets = workbook.sheet_names()
-#                 if verbose:
-#                     print(f"Contains xls sheets: {self.sheets}")
-#             elif self.extension == ".xlsx":
-#                 workbook = load_workbook(self.filepath)
-#                 self.sheets = workbook.sheetnames
-#                 if verbose:
-#                     print(f"Contains xlsx sheets: {self.sheets}")
-        
-
-#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
-#         if verbose:
-#             print(f"Reading {self.filename}...")
-#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
     
-#     def read_xls(self, sheet_name, verbose=True):
-#         if verbose:
-#             print(f"Reading {self.filename}...")
-#         if self.extension == ".xls":
-#             return pd.read_excel(self.filepath, sheet_name)
-#         elif self.extension == ".xlsx":
-#             workbook = load_workbook(self.filepath)
-#             worksheet = workbook[sheet_name]
-#             return pd.DataFrame(worksheet.values)
-
-# Move to data_classes.py when finished editing.
+# Office for National Statistics health data class
 
 class HealthData():
     def __init__(self):
@@ -467,40 +266,44 @@ class HealthData():
         with wandb.init(project="AQmortality", job_type="read-data") as run:
             raw_data_artifact = run.use_artifact('mortality-raw:latest')
             data_folder = raw_data_artifact.download()
-            df = pd.DataFrame()
             filepath = path.join(data_folder, f"deaths.npz")
             data = np.load(filepath, allow_pickle=True)
             df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["deaths"])
         return df
-        
-# class MetData():
-#     def __init__(self, home_folder, url="https://bulk.meteostat.net/hourly/03772.csv.gz", filename="hourly_heathrow_met_data.csv"):
-#         self.url = url
-#         self.home_folder = home_folder
-#         self.filename = filename
-#         self.filepath = path.join(self.home_folder, self.filename)
-        
-#         if not path.exists(self.home_folder):
-#             makedirs(self.home_folder)
+    
+    def scale_per_capita_and_log(self):
+        with wandb.init(project="AQmortality", job_type="scale-data") as run:
+            mort_data_artifact = run.use_artifact('mortality-raw:latest')
+            data_folder = mort_data_artifact.download()
+            filepath = path.join(data_folder, f"deaths.npz")
+            mort_data = np.load(filepath, allow_pickle=True)
+            mort_df = pd.DataFrame(index=pd.DatetimeIndex(mort_data["x"]), data=mort_data["y"].astype(int), columns=["deaths"])
             
-#     def download(self, verbose=True, save_data=True):
-#         columns = ["date", "hour", "temperature", "dew_point", "humidity", "precip", "blank1", "wind_dir", "wind_speed", "peak_gust", "pressure", "blank2", "blank3"]
-#         df = pd.read_csv(url, header=None, names=columns).drop(["blank1", "blank2", "blank3"], axis=1)
-#         df["date"] = df["date"] + " " + df["hour"].astype(str) +":00"
-#         df = df.drop(["hour"], axis=1).set_index("date")
-#         if save_data:
-#             df.to_csv(self.filepath)
-#             if verbose:
-#                 print(f"Saved to {self.filename}.")
-#         else:
-#             return df
+            pop_data_artifact = run.use_artifact('population-resample:latest')
+            data_folder = pop_data_artifact.download()
+            filepath = path.join(data_folder, f"population.npz")
+            pop_data = np.load(filepath, allow_pickle=True)
+            pop_df = pd.DataFrame(index=pd.DatetimeIndex(pop_data["x"]), data=pop_data["y"].astype(int), columns=["population"])
+                           
+            df = pop_df.join(mort_df).dropna()
+            df["deaths_per_capita"] = df["deaths"]/df["population"]
             
-#     def read_csv(self, verbose=True, index_col="date", parse_dates=True):
-#         if verbose:
-#             print(f"Reading {self.filename}...")
-#         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+            columns = df.columns.to_list()
+            scale_data = wandb.Artifact(
+                "mortality-scaled", type="dataset",
+                description=f"Scaled mortality data per capita for total London region.",
+                metadata={"shapes":[df[column].shape for column in columns],
+                         "columns":columns})
+            for column in columns:
+                with scale_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
 
-# Move this to a separate .py file when finished editing
+            run.log_artifact(scale_data)
+        
+        return df
+            
+        
+# Meteorology data class
 
 class MetData():
     def __init__(self, station):
@@ -544,3 +347,144 @@ class MetData():
                 else:
                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
         return df
+    
+    
+# Population data class
+
+class PopData():
+    def __init__(self):
+        self.tmp_folder = path.join(path.abspath(""), "tmp")
+        
+        if not path.exists(self.tmp_folder):
+            makedirs(self.tmp_folder)
+
+    def download(self, url, verbose=False):
+        self.filename = path.basename(url)
+        _, self.extension = path.splitext(self.filename)
+        self.filepath = path.join(self.tmp_folder, self.filename)
+        
+        request = requests.get(url)
+        file = open(self.filepath, 'wb')
+        file.write(request.content)
+        file.close()
+        if verbose:
+            print(f"Saved to {self.filename}")
+        if self.extension == ".zip":
+            self.zipfiles = zpf.ZipFile(self.filepath).namelist()
+            if verbose:
+                print("Contains zip files:")
+                [print(f"[{i}] {self.zipfiles[i]}") for i in range(len(self.zipfiles))]
+        elif self.extension == ".xls":
+            workbook = xlrd.open_workbook(self.filepath)
+            self.sheets = workbook.sheet_names()
+            if verbose:
+                print(f"Contains xls sheets: {self.sheets}")
+        elif self.extension == ".xlsx":
+            workbook = load_workbook(self.filepath)
+            self.sheets = workbook.sheetnames
+            if verbose:
+                print(f"Contains xlsx sheets: {self.sheets}")
+                
+    def unzip(self, file="all", verbose=False):
+        with zpf.ZipFile(self.filepath, 'r') as zip_ref:
+            if file =="all":                                       # Extract all zipped files.
+                zip_ref.extractall(self.tmp_folder)
+            else:                                                  # Extract one specified file,
+                zip_ref.extract(file, self.tmp_folder)            # then
+                self.filename = path.basename(file)                # reset the file name, path and extension info.
+                _, self.extension = path.splitext(self.filename)
+                self.filepath = path.join(self.tmp_folder, self.filename)
+             
+            if verbose:
+                print(f"Unzipped {file}.")
+            if self.extension == ".xls":
+                workbook = xlrd.open_workbook(self.filepath)
+                self.sheets = workbook.sheet_names()
+                if verbose:
+                    print(f"Contains xls sheets: {self.sheets}")
+            elif self.extension == ".xlsx":
+                workbook = load_workbook(self.filepath)
+                self.sheets = workbook.sheetnames
+                if verbose:
+                    print(f"Contains xlsx sheets: {self.sheets}")
+        
+    def download_and_log(self, url, region_name):
+        with wandb.init(project="AQmortality", job_type="load-data") as run:
+            self.download(url)
+    
+            df = pd.DataFrame()
+
+            for sheet in ["Table 3", "Table 4"]:
+                tmp_df = self.read_xls(sheet, verbose=False)
+                tmp_df = tmp_df.loc[tmp_df[0].apply(lambda x: isinstance(x, int))].reset_index(drop=True)[[0]].rename(columns={0:"date"}).join(tmp_df.loc[tmp_df[1]=="London"].reset_index(drop=True)[[2]].rename(columns={2:"population"})).set_index("date")
+                tmp_df.index = pd.to_datetime(tmp_df.index, format="%Y") + pd.tseries.offsets.DateOffset(months=6) # Set these as mid-year estimates
+                if df.empty:
+                    df = tmp_df.copy()
+                else:
+                    df = df.append(tmp_df.copy())
+                    
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "population-raw", type="dataset",
+                description=f"Raw annual population data for total {region_name} region. Data is extracted from source Excel file (not logged using Weights and Biases).",
+                metadata={"source":url,
+                         "shapes":[df[column].shape for column in columns],
+                         "columns":columns})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
+        
+        [remove(path.join(self.tmp_folder, file)) for file in listdir(self.tmp_folder)]
+        
+    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+        if verbose:
+            print(f"Reading {self.filename}...")
+        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+    
+    def read_xls(self, sheet_name, verbose=False):
+        if verbose:
+            print(f"Reading {self.filename}...")
+        if self.extension == ".xls":
+            return pd.read_excel(self.filepath, sheet_name)
+        elif self.extension == ".xlsx":
+            workbook = load_workbook(self.filepath)
+            worksheet = workbook[sheet_name]
+            return pd.DataFrame(worksheet.values)
+        
+    def read(self):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            raw_data_artifact = run.use_artifact('population-raw:latest')
+            data_folder = raw_data_artifact.download()
+            filepath = path.join(data_folder, f"population.npz")
+            data = np.load(filepath, allow_pickle=True)
+            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["population"])
+        return df
+    
+    def resample_time_and_log(self, key, method):
+        with wandb.init(project="AQmortality", job_type="resample-data") as run:
+            raw_data_artifact = run.use_artifact('population-raw:latest')
+            data_folder = raw_data_artifact.download()
+            filepath = path.join(data_folder, f"population.npz")
+            data = np.load(filepath, allow_pickle=True)
+            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"].astype(int), columns=["population"])
+            
+            resampled_df = df.resample(key).asfreq().interpolate(method=method)
+            columns = resampled_df.columns.to_list()
+            resample_data = wandb.Artifact(
+                "population-resample", type="dataset",
+                description=f"Resampled population data to daily resolution by {method} interpolation.",
+                metadata={"shapes":[resampled_df[column].shape for column in columns],
+                         "columns":columns,
+                        "key":key,
+                         "method":method})
+            for column in columns:
+                with resample_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
+
+            run.log_artifact(resample_data)
+        
+        return resampled_df  
