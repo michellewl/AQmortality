@@ -704,13 +704,9 @@ class IncomeData():
         with wandb.init(project="AQmortality", job_type="resample-data") as run:
             raw_data_artifact = run.use_artifact('income-raw:latest')
             data_folder = raw_data_artifact.download()
-            metadata_artifact = run.use_artifact("income-metadata:latest")
-            metadata_folder = metadata_artifact.download()
-            metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
-            metadata_df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
-            sites = metadata_df.index.to_list()
             df = pd.DataFrame()
-            for site in sites:
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
                 filepath = path.join(data_folder, f"{site}.npz")
                 try:
                     data = np.load(filepath, allow_pickle=True)
@@ -737,3 +733,36 @@ class IncomeData():
             run.log_artifact(resample_data)
         
         return resampled_df
+    
+    def regional_average_and_log(self):
+        with wandb.init(project="AQmortality", job_type="regional-average-data") as run:
+            daily_data_artifact = run.use_artifact('income-resample:latest')
+            data_folder = daily_data_artifact.download()
+            
+            df = pd.DataFrame()
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
+                filepath = path.join(data_folder, f"{site}.npz")
+                try:
+                    data = np.load(filepath, allow_pickle=True)
+                except FileNotFoundError:
+                    continue
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+
+            df = pd.DataFrame(df.mean(axis=1), columns=[f"income"])
+            columns = df.columns.to_list()
+            regional_data = wandb.Artifact(
+                "income-regional", type="dataset",
+                description=f"Regional average disposable income data at interpolated daily resolution.",
+                metadata={"shapes":[df[column].shape for column in columns],
+                         "columns":columns})
+            for column in columns:
+                with regional_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(regional_data)
+        
+        return df
