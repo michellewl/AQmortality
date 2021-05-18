@@ -3,7 +3,7 @@
 import numpy as np
 import requests
 import pandas as pd
-from os import makedirs, path, listdir
+from os import makedirs, path, listdir, remove
 from tqdm import tqdm
 import zipfile as zpf
 import matplotlib.pyplot as plt
@@ -555,3 +555,185 @@ class PopData():
             run.log_artifact(resample_data)
         
         return resampled_df  
+
+# Disposable income data class
+
+class IncomeData():
+    def __init__(self):
+        self.tmp_folder = path.join(path.abspath(""), "tmp")
+        
+        if not path.exists(self.tmp_folder):
+            makedirs(self.tmp_folder)
+
+    def download(self, url, verbose=False):
+        self.filename = path.basename(url)
+        _, self.extension = path.splitext(self.filename)
+        self.filepath = path.join(self.tmp_folder, self.filename)
+        
+        request = requests.get(url)
+        file = open(self.filepath, 'wb')
+        file.write(request.content)
+        file.close()
+        if verbose:
+            print(f"Saved to {self.filename}")
+        if self.extension == ".zip":
+            self.zipfiles = zpf.ZipFile(self.filepath).namelist()
+            if verbose:
+                print("Contains zip files:")
+                [print(f"[{i}] {self.zipfiles[i]}") for i in range(len(self.zipfiles))]
+        elif self.extension == ".xls":
+            workbook = xlrd.open_workbook(self.filepath)
+            self.sheets = workbook.sheet_names()
+            if verbose:
+                print(f"Contains xls sheets: {self.sheets}")
+        elif self.extension == ".xlsx":
+            workbook = load_workbook(self.filepath)
+            self.sheets = workbook.sheetnames
+            if verbose:
+                print(f"Contains xlsx sheets: {self.sheets}")
+                
+    def unzip(self, file="all", verbose=False):
+        with zpf.ZipFile(self.filepath, 'r') as zip_ref:
+            if file =="all":                                       # Extract all zipped files.
+                zip_ref.extractall(self.tmp_folder)
+            else:                                                  # Extract one specified file,
+                zip_ref.extract(file, self.tmp_folder)            # then
+                self.filename = path.basename(file)                # reset the file name, path and extension info.
+                _, self.extension = path.splitext(self.filename)
+                self.filepath = path.join(self.tmp_folder, self.filename)
+             
+            if verbose:
+                print(f"Unzipped {file}.")
+            if self.extension == ".xls":
+                workbook = xlrd.open_workbook(self.filepath)
+                self.sheets = workbook.sheet_names()
+                if verbose:
+                    print(f"Contains xls sheets: {self.sheets}")
+            elif self.extension == ".xlsx":
+                workbook = load_workbook(self.filepath)
+                self.sheets = workbook.sheetnames
+                if verbose:
+                    print(f"Contains xlsx sheets: {self.sheets}")
+        
+    def download_and_log(self, url, region_name):
+        with wandb.init(project="AQmortality", job_type="load-data") as run:
+            self.download(url)
+            df = self.read_xls("Table 2").transpose().set_index(0).drop(["Region", "Region name"])
+            df.columns = df.loc["LAD code"].values
+            df = df.drop("LAD code").dropna(axis=1)
+            df.index = pd.to_datetime(np.floor(np.where(df.index.values>9999, df.index.values/10, df.index.values)).astype(int), format="%Y").rename("date")
+                    
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "income-raw", type="dataset",
+                description=f"Raw annual disposable income per capita data for local authorities in {region_name} region. Data is extracted from source Excel file (not logged using Weights and Biases).",
+                metadata={"source":url,
+                         "shapes":[df[column].shape for column in columns],
+                         "LAD_codes":columns})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
+            
+            metadata_df = self.read_xls("Table 2")
+            metadata_df.columns = metadata_df.loc[0]
+            metadata_df = pd.DataFrame(metadata_df.drop("Region", axis=1).set_index("LAD code").drop("LAD code")["Region name"]).dropna(axis=0)
+            columns = metadata_df.columns.to_list()
+            meta_data = wandb.Artifact(
+                "income-metadata", type="dataset",
+                description=f"LAD codes and corresponding local authority names for {region_name} region. Data is extracted from source Excel file (not logged using Weights and Biases).",
+                metadata={"source":url,
+                         "shapes":[metadata_df[column].shape for column in columns],
+                         "columns":columns})
+            for column in columns:
+                with meta_data.new_file("LAD_codes.npz", mode="wb") as file:
+                            np.savez(file, x=metadata_df.index, y=metadata_df[column].values)
+            run.log_artifact(meta_data)
+        
+        [remove(path.join(self.tmp_folder, file)) for file in listdir(self.tmp_folder)]
+        
+    def read_csv(self, verbose=True, index_col="date", parse_dates=True):
+        if verbose:
+            print(f"Reading {self.filename}...")
+        return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
+    
+    def read_xls(self, sheet_name, verbose=False):
+        if verbose:
+            print(f"Reading {self.filename}...")
+        if self.extension == ".xls":
+            return pd.read_excel(self.filepath, sheet_name)
+        elif self.extension == ".xlsx":
+            workbook = load_workbook(self.filepath)
+            worksheet = workbook[sheet_name]
+            return pd.DataFrame(worksheet.values)
+        
+    def read(self, artifact):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
+            data_folder = raw_data_artifact.download()
+            df = pd.DataFrame()
+            if artifact == "income-regional":
+                filepath = path.join(data_folder, f"income.npz")
+                data = np.load(filepath, allow_pickle=True)
+                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"income"])
+            elif artifact == "income-raw" or artifact == "income-resample":
+                metadata_artifact = run.use_artifact("income-metadata:latest")
+                metadata_folder = metadata_artifact.download()
+                metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
+                metadata_df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
+                sites = metadata_df.index.to_list()
+                for site in sites:
+                    filepath = path.join(data_folder, f"{site}.npz")
+                    try:
+                        data = np.load(filepath, allow_pickle=True)
+                        if df.empty:
+                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                        else:
+                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                    except FileNotFoundError:
+                        continue
+            elif artifact == "income-metadata":
+                df = metadata_df
+            
+        return df
+    
+    def resample_time_and_log(self, key, method):
+        with wandb.init(project="AQmortality", job_type="resample-data") as run:
+            raw_data_artifact = run.use_artifact('income-raw:latest')
+            data_folder = raw_data_artifact.download()
+            metadata_artifact = run.use_artifact("income-metadata:latest")
+            metadata_folder = metadata_artifact.download()
+            metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
+            metadata_df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
+            sites = metadata_df.index.to_list()
+            df = pd.DataFrame()
+            for site in sites:
+                filepath = path.join(data_folder, f"{site}.npz")
+                try:
+                    data = np.load(filepath, allow_pickle=True)
+                    if df.empty:
+                        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"].astype(float), columns=[site])
+                    else:
+                        df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"].astype(float), columns=[site]))
+                except FileNotFoundError:
+                    continue
+            
+            resampled_df = df.resample(key).asfreq().interpolate(method=method)
+            columns = resampled_df.columns.to_list()
+            resample_data = wandb.Artifact(
+                "income-resample", type="dataset",
+                description=f"Resampled disposable income data to daily resolution by {method} interpolation. Local authority resolution.",
+                metadata={"shapes":[resampled_df[column].shape for column in columns],
+                         "columns":columns,
+                        "key":key,
+                         "method":method})
+            for column in columns:
+                with resample_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
+
+            run.log_artifact(resample_data)
+        
+        return resampled_df
