@@ -14,17 +14,18 @@ import wandb
 # London Air Quality Network data class
 
 class LAQNData():
-    def __init__(self, url, species, start_date, end_date):
-        self.url = url
+    def __init__(self, species, region):
         self.species = species
-        self.start_date = start_date
-        self.end_date = end_date
-        
+        self.region = region
+        self.url = f"http://api.erg.kcl.ac.uk/AirQuality/Information/MonitoringSites/GroupName={self.region}/Json"
+               
         london_sites = requests.get(self.url)
         self.sites_df = pd.DataFrame(london_sites.json()['Sites']['Site'])
         self.site_codes = self.sites_df["@SiteCode"].tolist()
 
-    def download(self, verbose=True):
+    def download(self, start_date, end_date, verbose=True):
+        self.start_date = start_date
+        self.end_date = end_date
         laqn_df = pd.DataFrame()
         
         if verbose:
@@ -72,14 +73,14 @@ class LAQNData():
         laqn_df.dropna(axis="columns", how="all", inplace=True)
         return laqn_df
         
-    def download_and_log(self):
+    def download_and_log(self, start_date, end_date):
         with wandb.init(project="AQmortality", job_type="load-data") as run:
-            df = self.download()
+            df = self.download(start_date, end_date)
             columns = df.columns.to_list()
 
             raw_data = wandb.Artifact(
                 "laqn-raw", type="dataset",
-                description=f"Raw LAQN {self.species} data from {self.start_date} to {self.end_date}, split according to site codes.",
+                description=f"Raw LAQN {self.species} data for the {self.region} region from {self.start_date} to {self.end_date}, split according to site codes.",
                 metadata={"source":self.url,
                          "shapes":[df[column].shape for column in columns],
                          "columns":columns})
@@ -92,7 +93,7 @@ class LAQNData():
 
 
     
-    def read(self, artifact, sites=False):
+    def read(self, artifact):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
             raw_data_artifact = run.use_artifact(f'{artifact}:latest')
             data_folder = raw_data_artifact.download()
@@ -102,33 +103,29 @@ class LAQNData():
                 data = np.load(filepath, allow_pickle=True)
                 df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
             else:
-                for site in sites:
-                    filepath = path.join(data_folder, f"{site}.npz")
-                    try:
-                        data = np.load(filepath, allow_pickle=True)
-                        if df.empty:
-                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                        else:
-                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
-                    except FileNotFoundError:
-                        continue
-            
+                for file in listdir(data_folder):
+                    site = file.replace(".npz", "")
+                    filepath = path.join(data_folder, file)
+                    data = np.load(filepath, allow_pickle=True)
+                    if df.empty:
+                        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                    else:
+                        df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                               
         return df
     
 
         
-    def resample_time_and_log(self, sites, date_index):
+    def resample_time_and_log(self, date_index):
         
         with wandb.init(project="AQmortality", job_type="resample-data") as run:
             raw_data_artifact = run.use_artifact('laqn-raw:latest')
             data_folder = raw_data_artifact.download()
             df = pd.DataFrame()
-            for site in sites:
-                filepath = path.join(data_folder, f"{site}.npz")
-                try:
-                    data = np.load(filepath, allow_pickle=True)
-                except FileNotFoundError:
-                    continue
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
                 if df.empty:
                     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
                 else:
@@ -140,13 +137,11 @@ class LAQNData():
             columns = resampled_df.columns.to_list()
             resample_data = wandb.Artifact(
                 "laqn-resample", type="dataset",
-                description=f"Resampled LAQN {self.species} data from {self.start_date} to {self.end_date}, split according to site codes.",
+                description=f"Resampled LAQN {self.species} data for the {self.region} region from {df.index.min()} to {df.index.max()}, split according to site codes.",
                 metadata={"source":self.url,
                          "shapes":[resampled_df[column].shape for column in columns],
                          "sites":columns,
-                        "species":self.species,
-                        "start_date":self.start_date,
-                        "end_date":self.end_date})
+                        "species":self.species})
             for column in columns:
                 with resample_data.new_file(column + ".npz", mode="wb") as file:
                         np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
@@ -155,17 +150,15 @@ class LAQNData():
         
         return resampled_df  
     
-    def regional_average_and_log(self, sites):
+    def regional_average_and_log(self):
         with wandb.init(project="AQmortality", job_type="regional-average-data") as run:
             daily_data_artifact = run.use_artifact('laqn-resample:latest')
             data_folder = daily_data_artifact.download()
             df = pd.DataFrame()
-            for site in sites:
-                filepath = path.join(data_folder, f"{site}.npz")
-                try:
-                    data = np.load(filepath, allow_pickle=True)
-                except FileNotFoundError:
-                    continue
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
                 if df.empty:
                     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
                 else:
@@ -175,12 +168,10 @@ class LAQNData():
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "laqn-regional", type="dataset",
-                description=f"Regional average LAQN {self.species} data from {self.start_date} to {self.end_date}.",
+                description=f"Regional {self.region} average LAQN {self.species} data from {df.index.min()} to {df.index.max()}.",
                 metadata={"source":self.url,
                          "shapes":[df[column].shape for column in columns],
-                         "species":self.species,
-                        "start_date":self.start_date,
-                        "end_date":self.end_date})
+                         "species":self.species})
             for column in columns:
                 with regional_data.new_file(column + ".npz", mode="wb") as file:
                         np.savez(file, x=df.index, y=df[column].values)
