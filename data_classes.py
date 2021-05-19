@@ -680,13 +680,9 @@ class IncomeData():
                 data = np.load(filepath, allow_pickle=True)
                 df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"income"])
             elif artifact == "income-raw" or artifact == "income-resample":
-                metadata_artifact = run.use_artifact("income-metadata:latest")
-                metadata_folder = metadata_artifact.download()
-                metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
-                metadata_df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
-                sites = metadata_df.index.to_list()
-                for site in sites:
-                    filepath = path.join(data_folder, f"{site}.npz")
+                for file in listdir(data_folder):
+                    site = file.replace(".npz", "")
+                    filepath = path.join(data_folder, file)
                     try:
                         data = np.load(filepath, allow_pickle=True)
                         if df.empty:
@@ -696,8 +692,10 @@ class IncomeData():
                     except FileNotFoundError:
                         continue
             elif artifact == "income-metadata":
-                df = metadata_df
-            
+                metadata_artifact = run.use_artifact("income-metadata:latest")
+                metadata_folder = metadata_artifact.download()
+                metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
+                df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
         return df
     
     def resample_time_and_log(self, key, method):
@@ -707,7 +705,7 @@ class IncomeData():
             df = pd.DataFrame()
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
-                filepath = path.join(data_folder, f"{site}.npz")
+                filepath = path.join(data_folder, file)
                 try:
                     data = np.load(filepath, allow_pickle=True)
                     if df.empty:
