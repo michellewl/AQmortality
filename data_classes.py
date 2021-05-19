@@ -742,21 +742,18 @@ class IncomeData():
             df = pd.DataFrame()
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
-                filepath = path.join(data_folder, f"{site}.npz")
-                try:
-                    data = np.load(filepath, allow_pickle=True)
-                except FileNotFoundError:
-                    continue
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
                 if df.empty:
                     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
                 else:
                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
 
-            df = pd.DataFrame(df.mean(axis=1), columns=[f"income"])
+            df = pd.DataFrame(df.median(axis=1), columns=[f"income"])
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "income-regional", type="dataset",
-                description=f"Regional average disposable income data at interpolated daily resolution.",
+                description=f"Regional median disposable income data at interpolated daily resolution.",
                 metadata={"shapes":[df[column].shape for column in columns],
                          "columns":columns})
             for column in columns:
