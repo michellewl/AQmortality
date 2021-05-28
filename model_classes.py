@@ -96,13 +96,13 @@ class HealthModel():
                     np.savez(file, x=x, y=y, z=z)
                 run.log_artifact(subset_data)
                 
-    def read_data(self, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            data_artifact = run.use_artifact(f"{artifact}:latest")
-            data_folder = data_artifact.download()
-            file = artifact.replace("xy_", "") + ".npz"
-            data = np.load(path.join(data_folder, file), allow_pickle=True)
-        return data["x"], data["y"]
+#     def read_data(self, artifact):
+#         with wandb.init(project="AQmortality", job_type="read-data") as run:
+#             data_artifact = run.use_artifact(f"{artifact}:latest")
+#             data_folder = data_artifact.download()
+#             file = artifact.replace("xy_", "") + ".npz"
+#             data = np.load(path.join(data_folder, file), allow_pickle=True)
+#         return data["x"], data["y"]
     
     def train_and_log(self):
         model_type = self.architecture.replace("_", "-")
@@ -187,21 +187,33 @@ class HealthModel():
                     data_dict.update({f"y_{subset}_predict": regressor.predict(checkpoint, data_dict[f"x_{subset}"], data_dict[f"y_{subset}"], self.batch_size)})
   
             # Save data_dict with wandb artifacts for future use.
-#             all_data = wandb.Artifact(
-#                             f"xy_all", type="dataset",
-#                             description=f"Input features (normalised), targets and {model_type} model predictions.",
-#                             metadata={"regressor_model": self.architecture, 
-#                                       "data_keys":data_dict.keys(),
-#                                       "species": self.species,
-#                                       "spatial_resolution": self.spatial_resolution,
-#                                       "temporal_resolution": self.temporal_resolution,
-#                                       "input_artifacts": self.input_artifacts,
-#                                       "met_variables": self.met_variables})
-#                 with all_data.new_file("data.npz", mode="wb") as file:
-#                     for key in data_dict.keys():
-#                         np.savez(file, x=x, y=y, z=z)
-#                 run.log_artifact(all_data)
+            all_data = wandb.Artifact(
+                            f"xy_all", type="dataset",
+                            description=f"Input features (normalised), targets and {model_type} model predictions.",
+                            metadata={"regressor_model": self.architecture, 
+                                      "data_keys":list(data_dict.keys()),
+                                      "species": self.species,
+                                      "spatial_resolution": self.spatial_resolution,
+                                      "temporal_resolution": self.temporal_resolution,
+                                      "input_artifacts": self.input_artifacts,
+                                      "met_variables": self.met_variables})
+            
+            for key in data_dict.keys():
+                with all_data.new_file(key+".npy", mode="wb") as file:
+                    np.save(file, data_dict[key])
+            run.log_artifact(all_data)
         
+        return data_dict
+    
+    def read_data(self, artifact, version):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            data_artifact = run.use_artifact(f"{artifact}:{version}")
+            data_folder = data_artifact.download()
+            data_dict = {}
+            for file in listdir(data_folder):
+                array = np.load(path.join(data_folder, file))
+                key = file.replace(".npy", "")
+                data_dict.update({key: array})
         return data_dict
 
 # Metrics function.
