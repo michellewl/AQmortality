@@ -10,3 +10,4 @@ NOAA_token.py
 /artifacts/
 core.10320
 /tmp/
+.nfs*
