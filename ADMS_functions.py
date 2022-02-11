@@ -12,6 +12,8 @@ import zipfile as zpf
 from tqdm import tqdm
 from PIL import Image
 
+PG_index = ["A", "B", "C", "D", "E", "F", "G"]
+
 def metline_to_datetime(i):
     numbers = str(i).replace("b", "").replace("'", "").split("_")
     return np.datetime64(f"{numbers[0]}")+ np.timedelta64(int(numbers[1])-1, "D") + np.timedelta64(int(numbers[2]), "h")
