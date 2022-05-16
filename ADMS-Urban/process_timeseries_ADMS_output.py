@@ -14,8 +14,7 @@ from PIL import Image
 from ADMS_functions import extract_dataset_time_axis, plot_timeseries, PointXYZ_to_latlon, plot_on_map, plot_in_grid_box, process_timeseries_dataset
 
 run = "015"
-# folder = f"/home/users/mwlw3/ADMS-Urban/2019_hourly_met/all_regions/{run}/"
-folder = f"C:Users\mwlw3\OneDrive - University of Cambridge\Documents\Prelim_runs\2019_hourly_met\all_regions\{run}"
+folder = f"/home/users/mwlw3/ADMS-Urban/2019_hourly_met/all_regions/{run}/"
 files = [path.join(folder, file) for file in listdir(folder) if path.splitext(file)[-1]==".nc"]
 processed_coordinates_filepath = path.join(folder, "raw_processed_coordinates.nc")
 
