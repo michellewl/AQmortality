@@ -22,15 +22,24 @@ processed_coordinates_filepath = path.join(folder, "raw_processed_coordinates.nc
 
 if not path.exists(processed_coordinates_filepath):
     print(f"Loading raw data for run {run} and processing the netCDF coordinates...")
-    makedirs(path.join(folder, "raw_processed_regions"))
+    processed_regions_folder = path.join(folder, "raw_processed_regions")
+    if not path.exists(processed_regions_folder):
+        makedirs(processed_regions_folder)
     for i in tqdm(range(len(files))):
         region = files[i].split(".")[-2]
         region_filepath = path.join(folder, "raw_processed_regions", f"{region}.nc")
-        region_ds = process_timeseries_dataset(xr.open_dataset(files[i]))
-        region_ds.to_netcdf(region_filepath)
-    # loop through processed region files... for 
-     #new_ds = xr.concat([ ], "space")
+        if not path.exists(region_filepath):
+            region_ds = process_timeseries_dataset(xr.open_dataset(files[i]))
+            region_ds.to_netcdf(region_filepath)
+    # loop through processed region files... 
+    print("Concatenating netCDF files..."
+    new_ds = xr.concat([xr.open_dataset(path.join(processed_regions_folder, listdir(processed_regions_folder)[i])) for i in tqdm(range(len(listdir(processed_regions_folder))))], "space")
+   
+    print("Saving new netCDF file..."
+    new_ds.to_netcdf(processed_coordinates_filepath)
+    print(f"Saved to {processed_coordinates_filepath}"
+
 elif path.exists(processed_coordinates_filepath):
-        new_ds = xr.open_dataset(processed_coordinates_filepath)
-        print(f"Loaded the processed coordinate data for run {run}.")
+    new_ds = xr.open_dataset(processed_coordinates_filepath)
+    print(f"Loaded the processed coordinate data for run {run}.")
 
