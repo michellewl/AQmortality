@@ -33,7 +33,7 @@ if not path.exists(processed_coordinates_filepath):
             region_ds.to_netcdf(region_filepath)
     # loop through processed region files... 
     print("Concatenating netCDF files...")
-    new_ds = xr.concat([xr.open_dataset(path.join(processed_regions_folder, listdir(processed_regions_folder)[i])) for i in tqdm(range(len(listdir(processed_regions_folder))))], "space")
+    new_ds = xr.concat([xr.open_dataset(path.join(processed_regions_folder, listdir(processed_regions_folder)[i])) for i in tqdm(range(len(listdir(processed_regions_folder)[0:10])))], "space")
    
     print("Saving new netCDF file...")
     new_ds.to_netcdf(processed_coordinates_filepath)
