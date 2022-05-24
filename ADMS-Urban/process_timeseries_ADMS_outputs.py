@@ -38,13 +38,17 @@ if files and not path.exists(processed_coordinates_filepath):
     print("Done.")
             
 # Subset for each month of the year and concatenate all regions together  
-
-files = [path.join(processed_regions_folder, file) for file in listdir(processed_regions_folder)]
+if path.exists(processed_regions_folder):
+    files = [path.join(processed_regions_folder, file) for file in listdir(processed_regions_folder)]
+else:
+    files = None
 
 processed_months_folder = path.join(folder, "raw_processed_months")
-if files and not path.exists(processed_months_folder):
-    print("Processing data to create monthly files...")
+if not path.exists(processed_months_folder):
     makedirs(processed_months_folder)
+    
+if files and not listdir(processed_months_folder):
+    print("Processing data to create monthly files...")
 
     for month_i in tqdm(range(12)):
         month = month_i+1
@@ -80,18 +84,23 @@ if files and not path.exists(processed_months_folder):
 
 
 # Aggregate the hourly resolution data to daily mean data, using the monthly files.
-files = [path.join(processed_months_folder, file) for file in listdir(processed_months_folder) if file.split(".")[-1]=="nc"]
+if path.exists(processed_months_folder):
+    files = [path.join(processed_months_folder, file) for file in listdir(processed_months_folder) if file.split(".")[-1]=="nc"]
+else:
+    files = None
 
 daily_offgrid_folder = path.join(folder, "daily_offgrid")
-
-if files and not path.exists(daily_offgrid_folder):
-    print("Aggregating hourly data to daily mean data, using monthly files.")
+if not path.exists(daily_offgrid_folder):
     makedirs(daily_offgrid_folder)
+    
+if files and not listdir(daily_offgrid_folder):
+    print("Aggregating hourly data to daily mean data, using monthly files.")
 
     daily_regions = []    
 
     for i in tqdm(range(len(files))):
-        daily_mean_ds = xr.open_dataset(files[i]).swap_dims({"time":"datetime"}).resample(datetime="1D").mean(dim="datetime")
+        monthly_ds = xr.load_dataset(files[i])
+        daily_mean_ds = monthly_ds.where(monthly_ds != -999).swap_dims({"time":"datetime"}).resample(datetime="1D").mean(dim="datetime")
         daily_regions.append(daily_mean_ds)
 
     print("Concatenating regions...")
