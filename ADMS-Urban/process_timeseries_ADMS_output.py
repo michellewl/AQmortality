@@ -38,32 +38,33 @@ if files and not path.exists(processed_coordinates_filepath):
     print("Done.")
             
 # Subset for each month of the year and concatenate all regions together  
-print("Processing data to create monthly files...")
+
 files = [path.join(processed_regions_folder, file) for file in listdir(processed_regions_folder)]
 
 processed_months_folder = path.join(folder, "raw_processed_months")
-if not path.exists(processed_months_folder):
+if files and not path.exists(processed_months_folder):
+    print("Processing data to create monthly files...")
     makedirs(processed_months_folder)
 
-for month_i in tqdm(range(12)):
-    month = month_i+1
-    monthly_filepath = path.join(processed_months_folder, f"month_{str(month).zfill(2)}.nc")
-    if not path.exists(monthly_filepath):
-        monthly_regions = []
-        for files_i in range(len(files)):
-            ds = xr.open_dataset(files[files_i])
-            year = int(re.findall("\d\d\d\d", folder)[0])
-            ds = ds.isel(time=(ds.datetime.dt.year==year))
-            ds = ds.isel(time=(ds.datetime.dt.month==month))
-            monthly_regions.append(ds)
+    for month_i in tqdm(range(12)):
+        month = month_i+1
+        monthly_filepath = path.join(processed_months_folder, f"month_{str(month).zfill(2)}.nc")
+        if not path.exists(monthly_filepath):
+            monthly_regions = []
+            for files_i in range(len(files)):
+                ds = xr.open_dataset(files[files_i])
+                year = int(re.findall("\d\d\d\d", folder)[0])
+                ds = ds.isel(time=(ds.datetime.dt.year==year))
+                ds = ds.isel(time=(ds.datetime.dt.month==month))
+                monthly_regions.append(ds)
 
-        monthly_ds = xr.concat(monthly_regions, dim="space")
-        monthly_ds.to_netcdf(monthly_filepath)
-    else:
-        print(f"Monthly file month_{str(month).zfill(2)}.nc already exists.")
-print("Removing regional files.")
-[remove(file) for file in files]
-print("Done.")
+            monthly_ds = xr.concat(monthly_regions, dim="space")
+            monthly_ds.to_netcdf(monthly_filepath)
+        else:
+            print(f"Monthly file month_{str(month).zfill(2)}.nc already exists.")
+    print("Removing regional files.")
+    [remove(file) for file in files]
+    print("Done.")
 #     # loop through processed region files... 
 #     print("Concatenating netCDF files...")
 #     new_ds = xr.concat([xr.open_dataset(path.join(processed_regions_folder, listdir(processed_regions_folder)[i])) for i in tqdm(range(len(listdir(processed_regions_folder)[0:10])))], "space")
@@ -76,3 +77,25 @@ print("Done.")
 #     new_ds = xr.open_dataset(processed_coordinates_filepath)
 #     print(f"Loaded the processed coordinate data for run {run}.")
 
+
+
+# Aggregate the hourly resolution data to daily mean data, using the monthly files.
+files = [path.join(processed_months_folder, file) for file in listdir(processed_months_folder) if file.split(".")[-1]=="nc"]
+
+daily_offgrid_folder = path.join(folder, "daily_offgrid")
+
+if files and not path.exists(daily_offgrid_folder):
+    print("Aggregating hourly data to daily mean data, using monthly files.")
+    makedirs(daily_offgrid_folder)
+
+    daily_regions = []    
+
+    for i in tqdm(range(len(files))):
+        daily_mean_ds = xr.open_dataset(files[i]).swap_dims({"time":"datetime"}).resample(datetime="1D").mean(dim="datetime")
+        daily_regions.append(daily_mean_ds)
+
+    print("Concatenating regions...")
+    daily_ds = xr.concat(daily_regions, dim="space")
+    print("Saving daily netCDF...")
+    daily_ds.to_netcdf(path.join(daily_offgrid_folder, f"daily_offgrid.nc"))
+    print("Done.")
