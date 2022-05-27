@@ -6,8 +6,8 @@ __pycache__/
 *.zip
 *.tar
 NOAA_token.py
-/wandb/
-/artifacts/
+*wandb/
+*artifacts/
 core.10320
 /tmp/
 .nfs*
