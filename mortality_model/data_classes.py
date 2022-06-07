@@ -179,6 +179,111 @@ class LAQNData():
             run.log_artifact(regional_data)
         
         return df
+    
+    
+    def local_authority_aggregation(self, df, verbose=True):
+        print("Averaging sites according to local authorities...")
+        meta_url = "http://api.erg.kcl.ac.uk/AirQuality/Information/MonitoringSites/GroupName=London/Json"
+        sites_request = requests.get(meta_url)
+        meta_df = pd.DataFrame(sites_request.json()['Sites']['Site'])
+
+        df.index = pd.to_datetime(df.index)
+
+        aggregated_df = pd.DataFrame()
+        local_authorities_list = meta_df["@LocalAuthorityName"].unique().tolist()
+
+        for i in tqdm(range(len(local_authorities_list))):
+            local_authority = local_authorities_list[i]
+            site_codes = meta_df.loc[meta_df["@LocalAuthorityName"] == local_authority, "@SiteCode"].values
+            site_codes = list(set(site_codes).intersection(df.columns))
+            current_df = df[site_codes].copy()
+
+            if len(site_codes) == 0:
+                if verbose:
+                    print(f"No data for {local_authority}")
+                continue
+
+            if len(site_codes) == 1:
+                current_df.columns = [local_authority]
+                if verbose:
+                    print(f"Skipped algorithm for {local_authority} - only one site with data.")
+                if aggregated_df.empty:
+                    aggregated_df = current_df.copy()
+                else:
+                    aggregated_df = aggregated_df.join(current_df.copy(), how="left")
+
+            else:
+                # Step 1: Compute annual mean for each monitor for each year
+                annual_mean_df = current_df.resample("A").mean()
+
+                # Step 2: Subtract annual mean from hourly measurements to obtain hourly deviance for the monitor
+                for year in annual_mean_df.index.year:
+                    for site in current_df.columns:
+                        # Create a list of the annual mean value for the site that is the same length as the data
+                        annual_mean = annual_mean_df.loc[annual_mean_df.index.year == year, site].tolist() * len(current_df.loc[current_df.index.year == year, site])
+                        # Subtract the annual mean list from the dataframe
+                        current_df.loc[current_df.index.year == year, site] = current_df.loc[current_df.index.year == year, site] - annual_mean
+                # Calculate the annual mean for the borough (over multiple sites)
+                annual_mean_df[local_authority] = annual_mean_df.mean(axis=1)
+
+                # Step 3: Standardise the hourly deviance by dividing by standard deviation for the monitor
+                sd_per_site = current_df.copy().std(axis=0, ddof=0)
+                sd_per_borough = current_df.values.flatten()[~np.isnan(current_df.values.flatten())].std(ddof=0)
+                current_df = current_df / sd_per_site
+
+                # Step 4: Average the hourly standardised deviations to get an average across all monitors
+                current_df[local_authority] = current_df.mean(axis=1)
+
+                # Step 5: Multiply the hourly averaged standardised deviation
+                # by the standard deviation across all monitor readings for the entire years (to un-standardise)
+                current_df[local_authority] = current_df[local_authority] * sd_per_borough
+
+                # Step 6: Add the hourly average deviance and annual average across all monitors to get a hourly average reading
+                for year in annual_mean_df.index.year:
+                    # Make the list the correct length as before
+                    annual_mean = annual_mean_df.loc[annual_mean_df.index.year == year, local_authority].tolist() * len(current_df.loc[current_df.index.year == year])
+                    # Add the annual mean
+                    current_df.loc[current_df.index.year == year, local_authority] = current_df.loc[current_df.index.year == year, local_authority] + annual_mean
+                # Only keep the hourly data for the borough
+                current_df = current_df[[local_authority]]
+
+                if aggregated_df.empty:
+                    aggregated_df = current_df.copy()
+                else:
+                    aggregated_df = aggregated_df.join(current_df.copy(), how="left")
+
+        return aggregated_df
+    
+    def local_authority_aggregation_and_log(self):
+        with wandb.init(project="AQmortality", job_type="local-authority-average-data") as run:
+            daily_data_artifact = run.use_artifact('laqn-resample:latest')
+            data_folder = daily_data_artifact.download()
+            df = pd.DataFrame()
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+
+            df = self.local_authority_aggregation(df)
+            
+            columns = df.columns.to_list()
+            local_authority_data = wandb.Artifact(
+                "laqn-local-authority", type="dataset",
+                description=f"{self.region} local authority-aggregated LAQN {self.species} data from {df.index.min()} to {df.index.max()}.",
+                metadata={"source":self.url,
+                         "shapes":[df[column].shape for column in columns],
+                         "species":self.species})
+            for column in columns:
+                with local_authority_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(local_authority_data)
+        
+        return df
 
     
 # Office for National Statistics health data class
