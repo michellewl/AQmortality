@@ -752,3 +752,65 @@ class IncomeData():
             run.log_artifact(regional_data)
         
         return df
+    
+    def rename_local_authority_districts(self, income_metadata_df, names_reference_list):
+        income_local_authorities_list = [item for item in set(income_metadata_df.local_authority.tolist())]
+        
+        mismatches = []
+        count = 0
+        for local_authority in income_local_authorities_list:
+            if local_authority not in names_reference_list:
+                mismatches.append(local_authority)
+            else:
+                count+=1
+        print(f"Pass 1:\nMatched {count} out of {len(income_local_authorities_list)} local authorities.")
+
+        if mismatches:
+            print("\nPass 2:\nSearching for matches...")
+            mismatch_dict = {}
+            search_letters = [local_authority[0:3] for local_authority in mismatches]
+            ref_local_authorities_breakdown = [local_authority.split(" ") for local_authority in names_reference_list]
+            for i in range(len(search_letters)):
+                for local_authority in ref_local_authorities_breakdown:
+                    for word in local_authority:
+                        if search_letters[i] in word:
+                            mismatch_dict.update({" ".join(local_authority): mismatches[i]})
+            if mismatch_dict:
+                print("Found matches (<reference_local_authority_name>: <income_local_authority_name>):")
+                print(mismatch_dict)
+               
+                for key in mismatch_dict.keys():
+                    income_metadata_df.replace({mismatch_dict[key]: key}, inplace=True)
+                print("\nLocal authorities have been renamed.")
+        return income_metadata_df
+        
+    def rename_local_authority_districts_and_log(self, reference="use_LAQN"):
+        with wandb.init(project="AQmortality", job_type="rename-local-authority-data") as run:
+            income_metadata_artifact = run.use_artifact('income-metadata:latest')
+            metadata_folder = income_metadata_artifact.download()
+            metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
+            income_metadata_df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
+
+            if reference=="use_LAQN":
+                meta_url = "http://api.erg.kcl.ac.uk/AirQuality/Information/MonitoringSites/GroupName=London/Json"
+                sites_request = requests.get(meta_url)
+                meta_df = pd.DataFrame(sites_request.json()['Sites']['Site'])
+                names_reference_list = [item for item in set(meta_df["@LocalAuthorityName"].tolist())]
+            else:
+                names_reference_list = reference
+            
+            metadata_df = self.rename_local_authority_districts(income_metadata_df, names_reference_list)            
+            
+            columns = metadata_df.columns.to_list()
+            meta_data = wandb.Artifact(
+                "income-metadata", type="dataset",
+                description=f"LAD codes and corresponding local authority names, after renaming using a reference.",
+                metadata={"reference":reference,
+                         "shapes":[metadata_df[column].shape for column in columns],
+                         "columns":columns})
+            for column in columns:
+                with meta_data.new_file("LAD_codes.npz", mode="wb") as file:
+                            np.savez(file, x=metadata_df.index, y=metadata_df[column].values)
+            run.log_artifact(meta_data)
+        
+        return metadata_df
