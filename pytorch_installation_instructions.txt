@@ -1,0 +1,14 @@
+# After running the setup.sh bash script, run the following from the command line:
+
+# Activate the conda environment:
+conda activate AQmort
+
+# To login to weights and biases: 
+wandb login
+
+# To install the PyTorch libraries on JASMIN:
+conda install pytorch==1.10.0 cpuonly -c pytorch
+module load gcc/8.2.0 
+pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-1.10.0+cpu.html
+
+# Different versions of pytorch and the torch libraries will need to be installed depending on the hardware being used. Check the PyTorch and PyTorch Geometric offical websites to determine the correct installation commands.
