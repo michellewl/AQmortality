@@ -1028,5 +1028,18 @@ class LondonGeoData():
             elif ward_scale:
                 return london_wards_gdf
         
-    #def read(self):
-        
+    def read(self, artifact):
+        with wandb.init(project="AQmortality", job_type="read-data") as run:
+            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
+            data_folder = raw_data_artifact.download()
+            gdf = gpd.GeoDataFrame()
+
+            for file in listdir(data_folder):
+                column = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
+                if gdf.empty:
+                    gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
+                else:
+                    gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
+        return gdf
