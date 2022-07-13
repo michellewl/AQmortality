@@ -1043,3 +1043,68 @@ class LondonGeoData():
                 else:
                     gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
         return gdf
+    
+    def rename_local_authority_districts(self, df, names_reference_list):
+        local_authorities_to_rename = [item for item in set(df.local_authority.tolist())]
+        
+        mismatches = []
+        count = 0
+        for local_authority in local_authorities_to_rename:
+            if local_authority not in names_reference_list:
+                mismatches.append(local_authority)
+            else:
+                count+=1
+        print(f"Pass 1:\nMatched {count} out of {len(local_authorities_to_rename)} local authorities.")
+
+        if mismatches:
+            print("\nPass 2:\nSearching for matches...")
+            mismatch_dict = {}
+            search_letters = [local_authority[0:3] for local_authority in mismatches]
+            ref_local_authorities_breakdown = [local_authority.split(" ") for local_authority in names_reference_list]
+            for i in range(len(search_letters)):
+                for local_authority in ref_local_authorities_breakdown:
+                    for word in local_authority:
+                        if search_letters[i] in word:
+                            mismatch_dict.update({" ".join(local_authority): mismatches[i]})
+            if mismatch_dict:
+                print("Found matches (<reference_local_authority_name>: <local_authority_to_rename>):")
+                print(mismatch_dict)
+               
+                for key in mismatch_dict.keys():
+                    df.replace({mismatch_dict[key]: key}, inplace=True)
+                print("\nLocal authorities have been renamed.")
+        return df
+    
+    def rename_local_authority_districts_and_log(self, names_reference_list, reference):
+        with wandb.init(project="AQmortality", job_type="rename-local-authority-data") as run:
+            raw_data_artifact = run.use_artifact(f'london-local-authorities-raw:latest')
+            data_folder = raw_data_artifact.download()
+            gdf = gpd.GeoDataFrame()
+
+            for file in listdir(data_folder):
+                column = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
+                if gdf.empty:
+                    gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
+                else:
+                    gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
+                    
+            gdf = self.rename_local_authority_districts(gdf, names_reference_list)
+            
+            # Log the renamed London local authorities shapefile with wandb
+            columns = gdf.columns.to_list()
+
+            data = wandb.Artifact(
+                "london-local-authorities-renamed", type="dataset",
+                description=f"Processed shapefile for London local authorities, renamed using a reference.",
+                metadata={"reference":reference,
+                          "columns":columns,
+                         "shapes":[gdf[column].shape for column in columns]})
+
+            for column in columns:
+                with data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=gdf.index, y=gdf[column].values)
+
+            run.log_artifact(data)
+            return gdf
