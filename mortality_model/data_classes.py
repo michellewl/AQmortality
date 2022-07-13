@@ -1030,19 +1030,25 @@ class LondonGeoData():
         
     def read(self, artifact):
         with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
-            data_folder = raw_data_artifact.download()
-            gdf = gpd.GeoDataFrame()
-
-            for file in listdir(data_folder):
-                column = file.replace(".npz", "")
-                filepath = path.join(data_folder, file)
+            data_artifact = run.use_artifact(f'{artifact}:latest')
+            data_folder = data_artifact.download()
+            
+            if artifact == "edge-pairs-array":
+                filepath = path.join(data_folder, "edge_pairs.npz")
                 data = np.load(filepath, allow_pickle=True)
-                if gdf.empty:
-                    gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
-                else:
-                    gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
-        return gdf
+                array = np.array([data["x"], data["y"]])
+                return array
+            else:
+                gdf = gpd.GeoDataFrame()
+                for file in listdir(data_folder):
+                    column = file.replace(".npz", "")
+                    filepath = path.join(data_folder, file)
+                    data = np.load(filepath, allow_pickle=True)
+                    if gdf.empty:
+                        gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
+                    else:
+                        gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
+                return gdf
     
     def rename_local_authority_districts(self, df, names_reference_list):
         local_authorities_to_rename = [item for item in set(df.local_authority.tolist())]
@@ -1108,3 +1114,68 @@ class LondonGeoData():
 
             run.log_artifact(data)
             return gdf
+        
+    def get_local_authority_neighbour_edges(self, london_authorities_gdf):
+        london_authorities_gdf["neighbours"] = None
+        edge_pairs = []
+
+        for index, row in london_authorities_gdf.iterrows():
+            # get adjoining local authorities
+            neighbours = london_authorities_gdf[london_authorities_gdf.geometry.touches(row.geometry)].local_authority.tolist()
+            neighbours_index = london_authorities_gdf[london_authorities_gdf.geometry.touches(row.geometry)].index.tolist()
+
+            # add names of neighbours as row value
+            london_authorities_gdf.at[index, "neighbours"] = neighbours
+
+            # add the neighbouring pair of indices to the edge_pairs list
+            for neighbour in neighbours_index:
+                edge_pairs.append([index, neighbour])
+        
+        edge_pairs = np.array(edge_pairs).transpose()
+        return london_authorities_gdf, edge_pairs
+    
+    def get_local_authority_neighbour_edges_and_log(self):
+        with wandb.init(project="AQmortality", job_type="get-local-authority-neighbour-edge-data") as run:
+            artifact = run.use_artifact(f'london-local-authorities-renamed:latest')
+            data_folder = artifact.download()
+            gdf = gpd.GeoDataFrame()
+
+            for file in listdir(data_folder):
+                column = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                data = np.load(filepath, allow_pickle=True)
+                if gdf.empty:
+                    gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
+                else:
+                    gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
+                    
+            gdf, edge_array = self.get_local_authority_neighbour_edges(gdf)
+
+            
+            # Log the updated London local authorities shapefile with wandb
+            columns = gdf.columns.to_list()
+
+            data = wandb.Artifact(
+                "london-local-authorities-neighbours", type="dataset",
+                description=f"Processed shapefile for London local authorities, with neighbouring local authorities identified.",
+                metadata={"columns":columns,
+                         "shapes":[gdf[column].shape for column in columns]})
+
+            for column in columns:
+                with data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=gdf.index, y=gdf[column].values)
+
+            run.log_artifact(data)
+            
+            # Log the edge pairs numpy array with wandb
+            data = wandb.Artifact(
+                "edge-pairs-array", type="dataset",
+                description=f"Edge pairs array for neighbouring London local authorities.",
+                metadata={"shape":edge_array.shape})
+
+            with data.new_file("edge_pairs" + ".npz", mode="wb") as file:
+                np.savez(file, x=edge_array[0], y=edge_array[1])
+
+            run.log_artifact(data)
+            
+            return gdf, edge_array
