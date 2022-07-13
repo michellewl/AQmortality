@@ -3,6 +3,7 @@
 import numpy as np
 import requests
 import pandas as pd
+import geopandas as gpd
 from os import makedirs, path, listdir, remove
 from tqdm import tqdm
 import zipfile as zpf
@@ -10,6 +11,9 @@ import matplotlib.pyplot as plt
 import xlrd
 from openpyxl import load_workbook
 import wandb
+import httplib2
+from bs4 import BeautifulSoup, SoupStrainer
+from shutil import rmtree
 
 # London Air Quality Network data class
 
@@ -284,7 +288,7 @@ class LAQNData():
             run.log_artifact(local_authority_data)
         
         return df
-
+    
     
 # Office for National Statistics health data class
 
@@ -493,10 +497,11 @@ class MetData():
                     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
                 else:
                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
-
-            df = df.loc[df.index < date_index.max()]
-            df = df.loc[df.index > date_index.min()]
-            resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).mean()
+            start, end = date_index.min(), date_index.max()
+            df = df.loc[df.index <= end]
+            df = df.loc[df.index >= start]
+            # resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).mean()
+            resampled_df = df.resample("D").mean()
             columns = resampled_df.columns.to_list()
             resample_data = wandb.Artifact(
                 "met-resample", type="dataset",
@@ -919,3 +924,109 @@ class IncomeData():
             run.log_artifact(meta_data)
         
         return metadata_df
+    
+class LondonGeoData():
+    def __init__(self):
+        self.tmp_folder = path.join(path.abspath(""), "tmp")
+        
+        if not path.exists(self.tmp_folder):
+            makedirs(self.tmp_folder)
+
+    def download(self, url, verbose=False):
+        
+        # Get the web links for the borough & ward coordinate data files
+
+        status, response = httplib2.Http().request(url)
+        link_dict = {}
+
+        for link in BeautifulSoup(response, parse_only=SoupStrainer('a'), features="html.parser"):
+            if link.has_attr('href') and link["href"].split(".")[-1]=="zip":
+                link_dict[link['href'].split("/")[-1].split(".")[0]] = f"https://data.london.gov.uk/{link['href']}"
+                
+        # Download the borough & ward coordinate data files and unzip them
+        
+        folder_path = path.join(self.tmp_folder, "i-Trees")
+        if not path.exists(folder_path):
+            makedirs(folder_path)
+        
+        for url in (progress_bar := tqdm(link_dict.values())):
+            progress_bar.set_description(f"Downloading {path.basename(url)}")
+            request = requests.get(url)
+            filepath = path.join(folder_path, path.basename(url))
+            file = open(filepath, 'wb')
+            file.write(request.content)
+            file.close()
+            zpf.ZipFile(filepath, 'r').extractall(path.join(self.tmp_folder, "i-Trees"))
+        
+        return link_dict
+            
+    def process(self, link_dict):
+        # Compile a geopandas dataframe of the london wards coordinates
+
+        london_wards_gdf = gpd.GeoDataFrame()
+
+        for borough in (progress_bar := tqdm(link_dict.keys())):
+            progress_bar.set_description(f"Processing {borough}")
+            borough_folder = path.join(self.tmp_folder, "i-Trees", borough)
+            shapefiles = [file for file in listdir(borough_folder) if file.split(".")[-1]=="shp"]
+            for shapefile in shapefiles:
+                gdf = gpd.read_file(path.join(borough_folder, shapefile))
+                if london_wards_gdf.empty:
+                    london_wards_gdf = gdf
+                else:
+                    london_wards_gdf = pd.concat([london_wards_gdf, gdf])
+        
+        return london_wards_gdf
+    
+    def download_and_log(self, local_authority_scale=True, ward_scale=False):
+        with wandb.init(project="AQmortality", job_type="load-data") as run:
+            url = "https://data.london.gov.uk/dataset/i-trees-canopy-ward-data"
+            link_dict = self.download(url)
+            london_wards_gdf = self.process(link_dict)
+
+            # Aggregate to local authority spatial scale (London boroughs)
+            london_authorities_gdf = london_wards_gdf[["BOROUGH", "geometry"]].dissolve(by="BOROUGH").reset_index()
+            london_authorities_gdf.rename(columns={"BOROUGH":"local_authority"}, inplace=True)
+
+            # Log the London wards shapefile with wandb
+            df = london_wards_gdf.copy()
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "london-wards-raw", type="dataset",
+                description=f"Raw shapefile for London wards. Data is extracted from i-Trees project on London Datastore (not logged using Weights and Biases).",
+                metadata={"source":url,
+                         "shapes":[df[column].shape for column in columns]})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
+
+            # Log the London local authorities shapefile with wandb
+            df = london_authorities_gdf.copy()
+            columns = df.columns.to_list()
+
+            raw_data = wandb.Artifact(
+                "london-local-authorities-raw", type="dataset",
+                description=f"Raw shapefile for London local authorities. Data is extracted & processed from i-Trees project on London Datastore (not logged using Weights and Biases).",
+                metadata={"source":url,
+                         "shapes":[df[column].shape for column in columns]})
+
+            for column in columns:
+                with raw_data.new_file(column + ".npz", mode="wb") as file:
+                        np.savez(file, x=df.index, y=df[column].values)
+
+            run.log_artifact(raw_data)
+
+            rmtree(path.join(self.tmp_folder, "i-Trees"))
+            print("Done!")
+            
+            if local_authority_scale:
+                return london_authorities_gdf
+            elif ward_scale:
+                return london_wards_gdf
+        
+    #def read(self):
+        
