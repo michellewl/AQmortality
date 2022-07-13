@@ -12,3 +12,5 @@ dependencies:
   - geopandas
   - ipywidgets
   - wandb
+  - httplib2
+  - bs4
