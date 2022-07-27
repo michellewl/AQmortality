@@ -1,11 +1,13 @@
 # AQmortality
 PhD project working repo 
 
+## Environment setup
+1. Run the setup.sh bash script
+2. Activate the conda environment: `conda activate AQmort`
+3. Login to weights and biases and follow the subsequent instructions: `wandb login`
+4. Install the PyTorch libraries on JASMIN:
+  - `conda install pytorch==1.10.0 cpuonly -c pytorch`
+  - `module load gcc/8.2.0`
+  - `pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-1.10.0+cpu.html`
 
-## Data classes
-
-### London Air Quality Network (LAQN) data class
-LAQN class for downloading &  processing of LAQN data. This code is adapted from my [COVID-19 repo](https://github.com/michellewl/COVID-19/blob/master/data/LAQN_class.py) (note that the borough averaging code has not been included here). See [here](https://github.com/michellewl/NO2-breast-cancer/tree/master/data/LAQN/download) for details on the source code (originally written for MRes project).
-
-### Office for National Statistics (ONS) health data class
-HealthData class for downloading & processing .xls(x) available on the ONS website.
+Note: If not using JASMIN, different versions of pytorch and the torch libraries will need to be installed depending on the hardware being used. Check the PyTorch and PyTorch Geometric offical websites to determine the correct installation commands.
