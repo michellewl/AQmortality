@@ -14,3 +14,4 @@ dependencies:
   - wandb
   - httplib2
   - bs4
+  - statsmodels
