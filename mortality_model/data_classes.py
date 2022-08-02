@@ -100,23 +100,22 @@ class LAQNData():
 
     
     def read(self, artifact_name):
-        with wandb.init(project=project, job_type="read-data") as run:
-            artifact = run.use_artifact(f'{artifact_name}:latest')
-            data_folder = artifact.download()
-            df = pd.DataFrame()
-            if artifact_name == "laqn-regional":
-                filepath = path.join(data_folder, f"mean_{self.species}.npz")
+        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+        data_folder = artifact.download()
+        df = pd.DataFrame()
+        if artifact_name == "laqn-regional":
+            filepath = path.join(data_folder, f"mean_{self.species}.npz")
+            data = np.load(filepath, allow_pickle=True)
+            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
+        else:
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
                 data = np.load(filepath, allow_pickle=True)
-                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
-            else:
-                for file in listdir(data_folder):
-                    site = file.replace(".npz", "")
-                    filepath = path.join(data_folder, file)
-                    data = np.load(filepath, allow_pickle=True)
-                    if df.empty:
-                        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                    else:
-                        df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                if df.empty:
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                else:
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
                                
         return df
     
@@ -402,12 +401,11 @@ class HealthData():
             return pd.DataFrame(worksheet.values)
         
     def read(self, artifact_name):
-        with wandb.init(project=project, job_type="read-data") as run:
-            artifact = run.use_artifact(f"{artifact_name}:latest")
-            data_folder = artifact.download()
-            filepath = path.join(data_folder, f"deaths.npz")
-            data = np.load(filepath, allow_pickle=True)
-            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["deaths"])
+        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+        data_folder = artifact.download()
+        filepath = path.join(data_folder, f"deaths.npz")
+        data = np.load(filepath, allow_pickle=True)
+        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["deaths"])
         return df
     
     def scale_per_capita_and_log(self):
@@ -472,17 +470,16 @@ class MetData():
             run.log_artifact(raw_data)
     
     def read(self, variables, artifact_name):
-        with wandb.init(project=project, job_type="read-data") as run:
-            artifact = run.use_artifact(f"{artifact_name}:latest")
-            data_folder = artifact.download()
-            df = pd.DataFrame()
-            for variable in variables:
-                filepath = path.join(data_folder, f"{variable}.npz")
-                data = np.load(filepath, allow_pickle=True)
-                if df.empty:
-                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
-                else:
-                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+        data_folder = artifact.download()
+        df = pd.DataFrame()
+        for variable in variables:
+            filepath = path.join(data_folder, f"{variable}.npz")
+            data = np.load(filepath, allow_pickle=True)
+            if df.empty:
+                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
+            else:
+                df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
         return df
     
     def resample_time_and_log(self, date_index):
@@ -626,12 +623,11 @@ class PopData():
             return pd.DataFrame(worksheet.values)
         
     def read(self, artifact_name):
-        with wandb.init(project=project, job_type="read-data") as run:
-            artifact = run.use_artifact(f'{artifact_name}:latest')
-            data_folder = artifact.download()
-            filepath = path.join(data_folder, f"population.npz")
-            data = np.load(filepath, allow_pickle=True)
-            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["population"])
+        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+        data_folder = artifact.download()
+        filepath = path.join(data_folder, f"population.npz")
+        data = np.load(filepath, allow_pickle=True)
+        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["population"])
         return df
     
     def resample_time_and_log(self, key, method):
@@ -774,31 +770,28 @@ class IncomeData():
             return pd.DataFrame(worksheet.values)
         
     def read(self, artifact_name):
-        with wandb.init(project=project, job_type="read-data") as run:
-            artifact = run.use_artifact(f'{artifact_name}:latest')
-            data_folder = artifact.download()
-            df = pd.DataFrame()
-            if artifact_name == "income-regional":
-                filepath = path.join(data_folder, f"income.npz")
-                data = np.load(filepath, allow_pickle=True)
-                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"income"])
-            elif artifact_name == "income-raw" or artifact == "income-resample":
-                for file in listdir(data_folder):
-                    site = file.replace(".npz", "")
-                    filepath = path.join(data_folder, file)
-                    try:
-                        data = np.load(filepath, allow_pickle=True)
-                        if df.empty:
-                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                        else:
-                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
-                    except FileNotFoundError:
-                        continue
-            elif artifact_name == "income-metadata":
-                artifact = run.use_artifact("income-metadata:latest")
-                metadata_folder = artifact.download()
-                metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
-                df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
+        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+        data_folder = artifact.download()
+        df = pd.DataFrame()
+        if artifact_name == "income-regional":
+            filepath = path.join(data_folder, f"income.npz")
+            data = np.load(filepath, allow_pickle=True)
+            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"income"])
+        elif artifact_name == "income-raw" or artifact_name == "income-resample":
+            for file in listdir(data_folder):
+                site = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
+                try:
+                    data = np.load(filepath, allow_pickle=True)
+                    if df.empty:
+                        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                    else:
+                        df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                except FileNotFoundError:
+                    continue
+        elif artifact_name == "income-metadata":
+            metadata = np.load(path.join(data_folder, "LAD_codes.npz"), allow_pickle=True)
+            df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
         return df
     
     def resample_time_and_log(self, key, method):
@@ -1031,26 +1024,25 @@ class LondonGeoData():
                 return london_wards_gdf
         
     def read(self, artifact_name):
-        with wandb.init(project=project, job_type="read-data") as run:
-            artifact = run.use_artifact(f'{artifact_name}:latest')
-            data_folder = artifact.download()
-            
-            if artifact_name == "edge-pairs-array":
-                filepath = path.join(data_folder, "edge_pairs.npz")
+        artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+        data_folder = artifact.download()
+
+        if artifact_name == "edge-pairs-array":
+            filepath = path.join(data_folder, "edge_pairs.npz")
+            data = np.load(filepath, allow_pickle=True)
+            array = np.array([data["x"], data["y"]])
+            return array
+        else:
+            gdf = gpd.GeoDataFrame()
+            for file in listdir(data_folder):
+                column = file.replace(".npz", "")
+                filepath = path.join(data_folder, file)
                 data = np.load(filepath, allow_pickle=True)
-                array = np.array([data["x"], data["y"]])
-                return array
-            else:
-                gdf = gpd.GeoDataFrame()
-                for file in listdir(data_folder):
-                    column = file.replace(".npz", "")
-                    filepath = path.join(data_folder, file)
-                    data = np.load(filepath, allow_pickle=True)
-                    if gdf.empty:
-                        gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
-                    else:
-                        gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
-                return gdf
+                if gdf.empty:
+                    gdf = gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column])
+                else:
+                    gdf = gdf.join(gpd.GeoDataFrame(index=data["x"], data=data["y"], columns=[column]))
+        return gdf
     
     def rename_local_authority_districts(self, df, names_reference_list):
         local_authorities_to_rename = [item for item in set(df.local_authority.tolist())]
