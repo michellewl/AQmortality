@@ -15,6 +15,8 @@ import httplib2
 from bs4 import BeautifulSoup, SoupStrainer
 from shutil import rmtree
 
+project = "AQmortality"
+
 # London Air Quality Network data class
 
 class LAQNData():
@@ -78,7 +80,7 @@ class LAQNData():
         return laqn_df
         
     def download_and_log(self, start_date, end_date):
-        with wandb.init(project="AQmortality", job_type="load-data") as run:
+        with wandb.init(project=project, job_type="load-data") as run:
             df = self.download(start_date, end_date)
             columns = df.columns.to_list()
 
@@ -97,10 +99,10 @@ class LAQNData():
 
 
     
-    def read(self, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
-            data_folder = raw_data_artifact.download()
+    def read(self, artifact_name):
+        with wandb.init(project=project, job_type="read-data") as run:
+            artifact = run.use_artifact(f'{artifact_name}:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             if artifact == "laqn-regional":
                 filepath = path.join(data_folder, f"mean_{self.species}.npz")
@@ -122,9 +124,9 @@ class LAQNData():
         
     def resample_time_and_log(self, date_index):
         
-        with wandb.init(project="AQmortality", job_type="resample-data") as run:
-            raw_data_artifact = run.use_artifact('laqn-raw:latest')
-            data_folder = raw_data_artifact.download()
+        with wandb.init(project=project, job_type="resample-data") as run:
+            artifact = run.use_artifact('laqn-raw:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
@@ -155,9 +157,9 @@ class LAQNData():
         return resampled_df  
     
     def regional_average_and_log(self):
-        with wandb.init(project="AQmortality", job_type="regional-average-data") as run:
-            daily_data_artifact = run.use_artifact('laqn-resample:latest')
-            data_folder = daily_data_artifact.download()
+        with wandb.init(project=project, job_type="regional-average-data") as run:
+            artifact = run.use_artifact('laqn-resample:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
@@ -259,9 +261,9 @@ class LAQNData():
         return aggregated_df
     
     def local_authority_aggregation_and_log(self):
-        with wandb.init(project="AQmortality", job_type="local-authority-average-data") as run:
-            daily_data_artifact = run.use_artifact('laqn-resample:latest')
-            data_folder = daily_data_artifact.download()
+        with wandb.init(project=project, job_type="local-authority-average-data") as run:
+            artifact = run.use_artifact('laqn-resample:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
@@ -350,7 +352,7 @@ class HealthData():
                     print(f"Contains xlsx sheets: {self.sheets}")
         
     def download_and_log(self, region_code, start_year, end_year, url_dict):
-        with wandb.init(project="AQmortality", job_type="load-data") as run:
+        with wandb.init(project=project, job_type="load-data") as run:
             df = pd.DataFrame()
 
             for year in range(start_year, end_year+1):
@@ -399,25 +401,25 @@ class HealthData():
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
         
-    def read(self, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact(f"{artifact}:latest")
-            data_folder = raw_data_artifact.download()
+    def read(self, artifact_name):
+        with wandb.init(project=project, job_type="read-data") as run:
+            artifact = run.use_artifact(f"{artifact_name}:latest")
+            data_folder = artifact.download()
             filepath = path.join(data_folder, f"deaths.npz")
             data = np.load(filepath, allow_pickle=True)
             df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["deaths"])
         return df
     
     def scale_per_capita_and_log(self):
-        with wandb.init(project="AQmortality", job_type="scale-data") as run:
-            mort_data_artifact = run.use_artifact('mortality-raw:latest')
-            data_folder = mort_data_artifact.download()
+        with wandb.init(project=project, job_type="scale-data") as run:
+            artifact = run.use_artifact('mortality-raw:latest')
+            data_folder = artifact.download()
             filepath = path.join(data_folder, f"deaths.npz")
             mort_data = np.load(filepath, allow_pickle=True)
             mort_df = pd.DataFrame(index=pd.DatetimeIndex(mort_data["x"]), data=mort_data["y"].astype(int), columns=["deaths"])
             
-            pop_data_artifact = run.use_artifact('population-resample:latest')
-            data_folder = pop_data_artifact.download()
+            artifact = run.use_artifact('population-resample:latest')
+            data_folder = artifact.download()
             filepath = path.join(data_folder, f"population.npz")
             pop_data = np.load(filepath, allow_pickle=True)
             pop_df = pd.DataFrame(index=pd.DatetimeIndex(pop_data["x"]), data=pop_data["y"].astype(int), columns=["population"])
@@ -452,7 +454,7 @@ class MetData():
         return df
         
     def download_and_log(self, url):
-        with wandb.init(project="AQmortality", job_type="load-data") as run:
+        with wandb.init(project=project, job_type="load-data") as run:
             df = self.download(url)
             columns = df.columns.to_list()
 
@@ -469,10 +471,10 @@ class MetData():
 
             run.log_artifact(raw_data)
     
-    def read(self, variables, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact(f"{artifact}:latest")
-            data_folder = raw_data_artifact.download()
+    def read(self, variables, artifact_name):
+        with wandb.init(project=project, job_type="read-data") as run:
+            artifact = run.use_artifact(f"{artifact_name}:latest")
+            data_folder = artifact.download()
             df = pd.DataFrame()
             for variable in variables:
                 filepath = path.join(data_folder, f"{variable}.npz")
@@ -486,9 +488,9 @@ class MetData():
     def resample_time_and_log(self, date_index):
         variables = ["temperature", "dew_point", "humidity", "precip", "wind_dir", "wind_speed", "peak_gust", "pressure"]
         
-        with wandb.init(project="AQmortality", job_type="resample-data") as run:
-            raw_data_artifact = run.use_artifact('met-raw:latest')
-            data_folder = raw_data_artifact.download()
+        with wandb.init(project=project, job_type="resample-data") as run:
+            artifact = run.use_artifact('met-raw:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             for variable in variables:
                 filepath = path.join(data_folder, f"{variable}.npz")
@@ -577,7 +579,7 @@ class PopData():
                     print(f"Contains xlsx sheets: {self.sheets}")
         
     def download_and_log(self, url, region_name):
-        with wandb.init(project="AQmortality", job_type="load-data") as run:
+        with wandb.init(project=project, job_type="load-data") as run:
             self.download(url)
     
             df = pd.DataFrame()
@@ -623,19 +625,19 @@ class PopData():
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
         
-    def read(self, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
-            data_folder = raw_data_artifact.download()
+    def read(self, artifact_name):
+        with wandb.init(project=project, job_type="read-data") as run:
+            artifact = run.use_artifact(f'{artifact_name}:latest')
+            data_folder = artifact.download()
             filepath = path.join(data_folder, f"population.npz")
             data = np.load(filepath, allow_pickle=True)
             df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=["population"])
         return df
     
     def resample_time_and_log(self, key, method):
-        with wandb.init(project="AQmortality", job_type="resample-data") as run:
-            raw_data_artifact = run.use_artifact('population-raw:latest')
-            data_folder = raw_data_artifact.download()
+        with wandb.init(project=project, job_type="resample-data") as run:
+            artifact = run.use_artifact('population-raw:latest')
+            data_folder = artifact.download()
             filepath = path.join(data_folder, f"population.npz")
             data = np.load(filepath, allow_pickle=True)
             df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"].astype(int), columns=["population"])
@@ -717,7 +719,7 @@ class IncomeData():
                     print(f"Contains xlsx sheets: {self.sheets}")
         
     def download_and_log(self, url, region_name):
-        with wandb.init(project="AQmortality", job_type="load-data") as run:
+        with wandb.init(project=project, job_type="load-data") as run:
             self.download(url)
             df = self.read_xls("Table 2").transpose().set_index(0).drop(["Region", "Region name"])
             df.columns = df.loc["LAD code"].values
@@ -771,10 +773,10 @@ class IncomeData():
             worksheet = workbook[sheet_name]
             return pd.DataFrame(worksheet.values)
         
-    def read(self, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            raw_data_artifact = run.use_artifact(f'{artifact}:latest')
-            data_folder = raw_data_artifact.download()
+    def read(self, artifact_name):
+        with wandb.init(project=project, job_type="read-data") as run:
+            artifact = run.use_artifact(f'{artifact_name}:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             if artifact == "income-regional":
                 filepath = path.join(data_folder, f"income.npz")
@@ -793,16 +795,16 @@ class IncomeData():
                     except FileNotFoundError:
                         continue
             elif artifact == "income-metadata":
-                metadata_artifact = run.use_artifact("income-metadata:latest")
-                metadata_folder = metadata_artifact.download()
+                artifact = run.use_artifact("income-metadata:latest")
+                metadata_folder = artifact.download()
                 metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
                 df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
         return df
     
     def resample_time_and_log(self, key, method):
-        with wandb.init(project="AQmortality", job_type="resample-data") as run:
-            raw_data_artifact = run.use_artifact('income-raw:latest')
-            data_folder = raw_data_artifact.download()
+        with wandb.init(project=project, job_type="resample-data") as run:
+            artifact = run.use_artifact('income-raw:latest')
+            data_folder = artifact.download()
             df = pd.DataFrame()
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
@@ -834,9 +836,9 @@ class IncomeData():
         return resampled_df
     
     def regional_average_and_log(self):
-        with wandb.init(project="AQmortality", job_type="regional-average-data") as run:
-            daily_data_artifact = run.use_artifact('income-resample:latest')
-            data_folder = daily_data_artifact.download()
+        with wandb.init(project=project, job_type="regional-average-data") as run:
+            artifact = run.use_artifact('income-resample:latest')
+            data_folder = artifact.download()
             
             df = pd.DataFrame()
             for file in listdir(data_folder):
@@ -895,9 +897,9 @@ class IncomeData():
         return income_metadata_df
         
     def rename_local_authority_districts_and_log(self, reference="use_LAQN"):
-        with wandb.init(project="AQmortality", job_type="rename-local-authority-data") as run:
-            income_metadata_artifact = run.use_artifact('income-metadata:latest')
-            metadata_folder = income_metadata_artifact.download()
+        with wandb.init(project=project, job_type="rename-local-authority-data") as run:
+            artifact = run.use_artifact('income-metadata:latest')
+            metadata_folder = artifact.download()
             metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
             income_metadata_df = pd.DataFrame(index=metadata["x"], data=metadata["y"], columns=["local_authority"])
 
@@ -979,7 +981,7 @@ class LondonGeoData():
         return london_wards_gdf
     
     def download_and_log(self, local_authority_scale=True, ward_scale=False):
-        with wandb.init(project="AQmortality", job_type="load-data") as run:
+        with wandb.init(project=project, job_type="load-data") as run:
             url = "https://data.london.gov.uk/dataset/i-trees-canopy-ward-data"
             link_dict = self.download(url)
             london_wards_gdf = self.process(link_dict)
@@ -1028,10 +1030,10 @@ class LondonGeoData():
             elif ward_scale:
                 return london_wards_gdf
         
-    def read(self, artifact):
-        with wandb.init(project="AQmortality", job_type="read-data") as run:
-            data_artifact = run.use_artifact(f'{artifact}:latest')
-            data_folder = data_artifact.download()
+    def read(self, artifact_name):
+        with wandb.init(project=project, job_type="read-data") as run:
+            artifact = run.use_artifact(f'{artifact_name}:latest')
+            data_folder = artifact.download()
             
             if artifact == "edge-pairs-array":
                 filepath = path.join(data_folder, "edge_pairs.npz")
@@ -1082,9 +1084,9 @@ class LondonGeoData():
         return df
     
     def rename_local_authority_districts_and_log(self, names_reference_list, reference):
-        with wandb.init(project="AQmortality", job_type="rename-local-authority-data") as run:
-            raw_data_artifact = run.use_artifact(f'london-local-authorities-raw:latest')
-            data_folder = raw_data_artifact.download()
+        with wandb.init(project=project, job_type="rename-local-authority-data") as run:
+            artifact = run.use_artifact(f'london-local-authorities-raw:latest')
+            data_folder = artifact.download()
             gdf = gpd.GeoDataFrame()
 
             for file in listdir(data_folder):
@@ -1135,7 +1137,7 @@ class LondonGeoData():
         return london_authorities_gdf, edge_pairs
     
     def get_local_authority_neighbour_edges_and_log(self):
-        with wandb.init(project="AQmortality", job_type="get-local-authority-neighbour-edge-data") as run:
+        with wandb.init(project=project, job_type="get-local-authority-neighbour-edge-data") as run:
             artifact = run.use_artifact(f'london-local-authorities-renamed:latest')
             data_folder = artifact.download()
             gdf = gpd.GeoDataFrame()
