@@ -104,7 +104,7 @@ class LAQNData():
             artifact = run.use_artifact(f'{artifact_name}:latest')
             data_folder = artifact.download()
             df = pd.DataFrame()
-            if artifact == "laqn-regional":
+            if artifact_name == "laqn-regional":
                 filepath = path.join(data_folder, f"mean_{self.species}.npz")
                 data = np.load(filepath, allow_pickle=True)
                 df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
@@ -778,11 +778,11 @@ class IncomeData():
             artifact = run.use_artifact(f'{artifact_name}:latest')
             data_folder = artifact.download()
             df = pd.DataFrame()
-            if artifact == "income-regional":
+            if artifact_name == "income-regional":
                 filepath = path.join(data_folder, f"income.npz")
                 data = np.load(filepath, allow_pickle=True)
                 df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"income"])
-            elif artifact == "income-raw" or artifact == "income-resample":
+            elif artifact_name == "income-raw" or artifact == "income-resample":
                 for file in listdir(data_folder):
                     site = file.replace(".npz", "")
                     filepath = path.join(data_folder, file)
@@ -794,7 +794,7 @@ class IncomeData():
                             df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
                     except FileNotFoundError:
                         continue
-            elif artifact == "income-metadata":
+            elif artifact_name == "income-metadata":
                 artifact = run.use_artifact("income-metadata:latest")
                 metadata_folder = artifact.download()
                 metadata = np.load(path.join(metadata_folder, "LAD_codes.npz"), allow_pickle=True)
@@ -1035,7 +1035,7 @@ class LondonGeoData():
             artifact = run.use_artifact(f'{artifact_name}:latest')
             data_folder = artifact.download()
             
-            if artifact == "edge-pairs-array":
+            if artifact_name == "edge-pairs-array":
                 filepath = path.join(data_folder, "edge_pairs.npz")
                 data = np.load(filepath, allow_pickle=True)
                 array = np.array([data["x"], data["y"]])
