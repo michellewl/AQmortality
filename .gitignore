@@ -8,7 +8,7 @@ __pycache__/
 NOAA_token.py
 *wandb/
 *artifacts/
-core.10320
+core.*
 /tmp/
 .nfs*
 v0_AQmort_env.yml
