@@ -1,5 +1,9 @@
 # Mortality model
 
+## Spatial scales
+- Regional
+- Borough (local authority)
+
 ## Data classes
 
 ### London Air Quality Network (LAQN) data class
