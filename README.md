@@ -10,4 +10,4 @@ PhD project working repo
   - `module load gcc/8.2.0`
   - `pip install torch-scatter torch-sparse torch-cluster torch-spline-conv torch-geometric -f https://data.pyg.org/whl/torch-1.10.0+cpu.html`
 
-Note: If not using JASMIN, different versions of pytorch and the torch libraries will need to be installed depending on the hardware being used. Check the PyTorch and PyTorch Geometric offical websites to determine the correct installation commands.
+Note: If not using JASMIN, different versions of pytorch and the torch libraries will need to be installed depending on the hardware being used. Check the [PyTorch](https://pytorch.org/get-started/locally/) and [PyTorch Geometric](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html) offical websites to determine the correct installation commands.
