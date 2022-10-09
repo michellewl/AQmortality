@@ -9,7 +9,7 @@ NOAA_token.py
 *wandb/
 *artifacts/
 core.*
-/tmp/
+*tmp/
 .nfs*
 v0_AQmort_env.yml
 */archive/
