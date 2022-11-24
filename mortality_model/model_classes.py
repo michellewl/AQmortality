@@ -408,3 +408,15 @@ class MLPDataset(Dataset):
             noise = torch.randn_like(x1)*self.noise_std
             x1 = x1 + noise
         return {"inputs": x1, "targets": y1}
+
+class LSTMArchitecture(nn.Module):
+    def __init__(self, in_size, hl_size, out_size):
+        super().__init__()
+        self.hidden_layer_size = hl_size
+        self.lstm = nn.LSTM(in_size, hl_size, batrch_first=True)
+        self.linear = nn.Linear(hl_size, out_size)
+
+    def forward(self, input_seq):
+        lstm_out, hidden_state_cell_state = self.lstm(input_seq)
+        prediction = self.linear(lsmt_out[:, -1, :]).reshape(-1)
+        return prediction
