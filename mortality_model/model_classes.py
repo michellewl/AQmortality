@@ -35,9 +35,10 @@ class HealthModel():
         self.temporal_resolution = config["temporal_resolution"]
         self.input_artifacts = config["input_artifacts"]
         self.met_variables = config["met_variables"]
+        self.target_shift = config["target_shift"]
 
     def preprocess_and_log(self):
-        with wandb.init(project="AQmortality", job_type="split-normalise-data") as run:
+        with wandb.init(project="AQmortality", job_type="split-normalise-data", mode="online") as run:
             df = pd.DataFrame()
             # use dataset artifacts
             for artifact in self.input_artifacts:
@@ -65,6 +66,11 @@ class HealthModel():
             df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"]*100000, columns=["deaths"]))
             df = df.dropna(axis=0)
 
+            # Offset target by time lag
+            df["deaths"] = df["deaths"].shift(self.target_shift) 
+            # Drop the corresponding number of rows at the start of the DataFrame
+            df = df.iloc[self.target_shift:]  
+
             # make new train, validation and test artifacts for regional scale data
             if self.val_size:
                 index = {"train": df.index[:int(len(df.index)*self.train_size)],
@@ -87,6 +93,7 @@ class HealthModel():
                             description=f"Input features (normalised) and targets for {subset}ing set.",
                             metadata={"input_shape":x.shape,
                                      "target_shape":y.shape,
+                                     "target_shift":self.target_shift,
                                      "species": self.species,
                                       "spatial_resolution": self.spatial_resolution,
                                       "temporal_resolution": self.temporal_resolution,
@@ -132,6 +139,7 @@ class HealthModel():
         # log trained model artifact – include input features description
             metadata = {"input_shape":data_dict["x_train"].shape, 
                         "target_shape":data_dict["y_train"].shape,
+                        "target_shift":self.target_shift,
                         "species": self.species,
                         "spatial_resolution": self.spatial_resolution,
                         "temporal_resolution": self.temporal_resolution,
@@ -192,6 +200,7 @@ class HealthModel():
                             description=f"Input features (normalised), targets and {model_type} model predictions.",
                             metadata={"regressor_model": self.architecture, 
                                       "data_keys":list(data_dict.keys()),
+                                      "target_shift":self.target_shift,
                                       "species": self.species,
                                       "spatial_resolution": self.spatial_resolution,
                                       "temporal_resolution": self.temporal_resolution,
