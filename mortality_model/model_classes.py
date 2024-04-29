@@ -130,7 +130,9 @@ class HealthModel():
                 data_dict.update({"y_predict": regressor.predict(data_dict["x_train"])})
                 wandb.log({"r_squared": r2_score(data_dict["y_train"], data_dict["y_predict"]),
                        "mean_squared_error": mean_squared_error(data_dict["y_train"], data_dict["y_predict"]),
-                       "mean_absolute_percentage_error": mape_score(data_dict["y_train"], data_dict["y_predict"])
+                       "mean_absolute_percentage_error": mape_score(data_dict["y_train"], data_dict["y_predict"]),
+                       "root_mean_squared_error": rmse_error(data_dict["y_train"], data_dict["y_predict"]),
+                       "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_train"], data_dict["y_predict"])
                       })
             elif model_type == "MLP-regressor":
                 regressor, epoch = MLPRegression(self.hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
@@ -185,7 +187,9 @@ class HealthModel():
     
                 wandb.log({"r_squared": r2_score(data_dict["y_test"], data_dict["y_test_predict"]), 
                            "mean_squared_error": mean_squared_error(data_dict["y_test"], data_dict["y_test_predict"]), 
-                           "mean_absolute_percentage_error": mape_score(data_dict["y_test"], data_dict["y_test_predict"])
+                           "mean_absolute_percentage_error": mape_score(data_dict["y_test"], data_dict["y_test_predict"]),
+                           "root_mean_squared_error": rmse_error(data_dict["y_test"], data_dict["y_test_predict"]),
+                           "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_test"], data_dict["y_test_predict"])
                           })
             elif model_type == "MLP-regressor":
                 regressor = MLPRegression(self.hidden_layer_sizes)
@@ -246,12 +250,16 @@ class HealthModel():
             r_squared = r2_score(data_dict["y_test"], data_dict["y_test_baseline"])
             mse = mean_squared_error(data_dict["y_test"], data_dict["y_test_baseline"])
             mape = mape_score(data_dict["y_test"], data_dict["y_test_baseline"])
+            rmse = rmse_error(data_dict["y_test"], data_dict["y_test_baseline"])
+            smape = smape_error(data_dict["y_test"], data_dict["y_test_baseline"])
 
             # Log evaluation metrics
             wandb.log({
                 "baseline_r_squared": r_squared,
                 "baseline_mean_squared_error": mse,
-                "baseline_mean_absolute_percentage_error": mape
+                "baseline_mean_absolute_percentage_error": mape,
+                "baseline_root_mean_squared_error": rmse,
+                "baseline_symmetric_mean_absolute_percentage_error": smape
             })
 
             # Save baseline predictions with wandb artifacts for future use
@@ -259,13 +267,8 @@ class HealthModel():
                 "baseline_predictions", type="dataset",
                 description="Baseline predictions using time lagged mortality data. The target mortality values in the test set are predicted as the same values from the time lagged day before.",
                 metadata={
-                    "target_shift": self.target_shift,
-                    "evaluation_metrics": {
-                        "r_squared": r_squared,
-                        "mean_squared_error": mse,
-                        "mean_absolute_percentage_error": mape
+                    "target_shift": self.target_shift
                     }
-                }
             )
 
             for key, value in data_dict.items():
@@ -276,14 +279,42 @@ class HealthModel():
             run.log_artifact(baseline_data)
 
 
-# Metrics function.
+# Metrics functions
 
 def mape_score(targets, predictions):
-        zero_indices = np.where(targets == 0)
-        targets_drop_zero = np.delete(targets, zero_indices)
-        prediction_drop_zero = np.delete(predictions, zero_indices)
-        mape = np.sum(np.abs(targets_drop_zero - prediction_drop_zero)/targets_drop_zero) * 100/len(targets_drop_zero)
-        return mape
+    zero_indices = np.where(targets == 0)[0]  # Get the array of indices directly
+    targets_drop_zero = np.delete(targets, zero_indices)
+    prediction_drop_zero = np.delete(predictions, zero_indices)
+    mape = np.sum(np.abs(targets_drop_zero - prediction_drop_zero) / targets_drop_zero) * 100 / len(targets_drop_zero)
+    return mape
+
+def rmse_error(targets, predictions):
+    """
+    Calculate the Root Mean Squared Error (RMSE) between observed and predicted values.
+
+    Parameters:
+    - targets: List, array, or other iterable of true values.
+    - predictions: List, array, or other iterable of predicted values.
+
+    Returns:
+    - RMSE value.
+    """
+    return np.sqrt(np.mean(np.square(np.array(targets) - np.array(predictions))))
+
+def smape_error(targets, predictions):
+    """
+    Calculate the Symmetric Mean Absolute Percentage Error (SMAPE) between observed and predicted values.
+
+    Parameters:
+    - targets: List, array, or other iterable of true values.
+    - predictions: List, array, or other iterable of predicted values.
+
+    Returns:
+    - SMAPE value.
+    """
+    targets, predictions = np.array(targets), np.array(predictions)
+    return 100 * np.mean(2 * np.abs(targets - predictions) / (np.abs(targets) + np.abs(predictions) + np.finfo(float).eps))
+
     
 
 # MLP classes.
@@ -294,7 +325,7 @@ class MLPRegression():
         self.out_sizes = output_layer_size
         # Initialise the MLPArchitecture class
         self.model = MLPArchitecture(self.hl_sizes, self.out_sizes)
-        self.metrics_functions = {"r2": r2_score, "mse": mean_squared_error, "mape": mape_score}
+        self.metrics_functions = {"r2": r2_score, "mse": mean_squared_error, "mape": mape_score, "smape": smape_error, "rmse": rmse_error}
         
     def fit(self, x_train, y_train, x_val, y_val, batch_size, num_epochs, learning_rate, noise_standard_deviation=False):
         # Training code that loops through epochs
@@ -353,7 +384,7 @@ class MLPRegression():
                     single_loss = criterion(y_predict_validation, targets_val)
                     validation_loss_sum += single_loss.item()*data["targets"].shape[0]
                     
-            for metric in ["r2", "mse", "mape"]:
+            for metric in ["r2", "mse", "mape", "smape", "rmse"]:
                 metrics_scores.update({f"{metric}_train": self.metrics_functions[metric](y_train, y_pred_epoch)})
                 metrics_scores.update({f"{metric}_val": self.metrics_functions[metric](y_val, y_pred_val_epoch)})
                 
@@ -374,7 +405,11 @@ class MLPRegression():
                       "mean_squared_error_train": metrics_scores["mse_train"],
                       "mean_squared_error_val": metrics_scores["mse_val"],
                       "mean_absolute_percentage_error_train": metrics_scores["mape_train"],
-                       "mean_absolute_percentage_error_val": metrics_scores["mape_val"]
+                       "mean_absolute_percentage_error_val": metrics_scores["mape_val"],
+                       "smape_train": metrics_scores["smape_train"], 
+                       "smape_val": metrics_scores["smape_val"], 
+                       "rmse_train": metrics_scores["rmse_train"], 
+                       "rmse_val": metrics_scores["rmse_val"]
                       },
                       step=epoch)
         
@@ -384,7 +419,11 @@ class MLPRegression():
                    "best_mean_squared_error_train": best_metrics["mse_train"],
                    "best_mean_squared_error_val": best_metrics["mse_val"],
                    "best_mean_absolute_percentage_error_train": best_metrics["mape_train"],
-                   "best_mean_absolute_percentage_error_val": best_metrics["mape_val"]
+                   "best_mean_absolute_percentage_error_val": best_metrics["mape_val"], 
+                   "best_smape_train": best_metrics["smape_train"], 
+                   "best_smape_val": best_metrics["smape_val"], 
+                   "best_rmse_train": best_metrics["rmse_train"], 
+                   "best_rmse_val": best_metrics["rmse_val"]
                   })
         
         return  self.best_model, best_epoch
@@ -408,12 +447,15 @@ class MLPRegression():
                 outputs = model(inputs)
                 y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
                 
-        for metric in ["r2", "mse", "mape"]:
+        for metric in ["r2", "mse", "mape", "smape", "rmse"]:
             metrics_scores.update({f"{metric}_test": self.metrics_functions[metric](y_test, y_predict)})
     
         wandb.log({"r2_test": metrics_scores["r2_test"],
                    "mean_squared_error_test": metrics_scores["mse_test"],
-                   "mean_absolute_percentage_error_test": metrics_scores["mape_test"]})
+                   "mean_absolute_percentage_error_test": metrics_scores["mape_test"], 
+                   "smape_test": metrics_scores["smape_test"], 
+                   "rmse_test": metrics_scores["rmse_test"]
+                   })
         
     
     def predict(self, checkpoint, x, y, batch_size):
