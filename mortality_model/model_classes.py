@@ -224,6 +224,57 @@ class HealthModel():
                 key = file.replace(".npy", "")
                 data_dict.update({key: array})
         return data_dict
+    
+
+    def create_baseline(self):
+        with wandb.init(project="AQmortality", job_type="baseline-model", config=self.config) as run:
+            data_dict = {}
+            subsets = ["test"]  # Only need test data for baseline model
+
+            for subset in subsets:
+                data_artifact = run.use_artifact(f"xy_{subset}:latest")
+                data_folder = data_artifact.download()
+                file = f"{subset}.npz"
+                data = np.load(path.join(data_folder, file), allow_pickle=True)
+                data_dict.update({f"x_{subset}": data["x"], f"y_{subset}": data["y"], subset+"_dates": data["z"]})
+
+            # Shift mortality data for test set by the desired time lag
+            data_dict["y_test_baseline"] = data_dict["y_test"][:-self.target_shift]
+            data_dict["y_test"] = data_dict["y_test"][self.target_shift:]
+
+            # Evaluate the performance of the baseline model
+            r_squared = r2_score(data_dict["y_test"], data_dict["y_test_baseline"])
+            mse = mean_squared_error(data_dict["y_test"], data_dict["y_test_baseline"])
+            mape = mape_score(data_dict["y_test"], data_dict["y_test_baseline"])
+
+            # Log evaluation metrics
+            wandb.log({
+                "baseline_r_squared": r_squared,
+                "baseline_mean_squared_error": mse,
+                "baseline_mean_absolute_percentage_error": mape
+            })
+
+            # Save baseline predictions with wandb artifacts for future use
+            baseline_data = wandb.Artifact(
+                "baseline_predictions", type="dataset",
+                description="Baseline predictions using time lagged mortality data. The target mortality values in the test set are predicted as the same values from the time lagged day before.",
+                metadata={
+                    "target_shift": self.target_shift,
+                    "evaluation_metrics": {
+                        "r_squared": r_squared,
+                        "mean_squared_error": mse,
+                        "mean_absolute_percentage_error": mape
+                    }
+                }
+            )
+
+            for key, value in data_dict.items():
+                if "y_test_baseline" in key:
+                    with baseline_data.new_file(key+".npy", mode="wb") as file:
+                        np.save(file, value)
+
+            run.log_artifact(baseline_data)
+
 
 # Metrics function.
 
