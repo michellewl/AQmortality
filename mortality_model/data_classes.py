@@ -138,18 +138,31 @@ class LAQNData():
 
             df = df.loc[df.index < date_index.max()]
             df = df.loc[df.index > date_index.min()]
-            resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).mean()
-            columns = resampled_df.columns.to_list()
+
+            # Resample to daily frequency and compute mean, min, and max
+            resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).agg({'mean', 'min', 'max'})
+
+            # Include metadata about the aggregation functions
+            aggregation_functions = ['mean', 'min', 'max']
+            metadata = {'aggregation_functions': aggregation_functions}
+
+            columns = list(set([col[0] for col in resampled_df.columns]))
             resample_data = wandb.Artifact(
                 "laqn-resample", type="dataset",
                 description=f"Resampled LAQN {self.species} data for the {self.region} region from {df.index.min()} to {df.index.max()}, split according to site codes.",
                 metadata={"source":self.url,
                          "shapes":[resampled_df[column].shape for column in columns],
                          "sites":columns,
-                        "species":self.species})
+                        "species":self.species,
+                        "aggregation_functions": metadata["aggregation_functions"]})
             for column in columns:
+                # print("column:", column)
                 with resample_data.new_file(column + ".npz", mode="wb") as file:
-                        np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
+                    np.savez(file, x=resampled_df.index, 
+                            mean=resampled_df[column]['mean'].values, 
+                            min=resampled_df[column]['min'].values, 
+                            max=resampled_df[column]['max'].values)
+
 
             run.log_artifact(resample_data)
         
@@ -159,23 +172,39 @@ class LAQNData():
         with wandb.init(project=project, job_type="regional-average-data") as run:
             artifact = run.use_artifact('laqn-resample:latest')
             data_folder = artifact.download()
-            df = pd.DataFrame()
+            # df = pd.DataFrame()
+            regional_mean = []
+            regional_min = []
+            regional_max = []
             for file in listdir(data_folder):
                 site = file.replace(".npz", "")
                 filepath = path.join(data_folder, file)
                 data = np.load(filepath, allow_pickle=True)
-                if df.empty:
-                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                else:
-                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                # if df.empty:
+                #     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                # else:
+                #     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                regional_mean.append(data["mean"])
+                regional_min.append(data["min"])
+                regional_max.append(data["max"])
+            
+            # Spatially aggreagate by taking the mean across all sites for each timestep
+            regional_mean = np.nanmean(np.array(regional_mean), axis=0)
+            regional_min = np.nanmean(np.array(regional_min), axis=0)
+            regional_max = np.nanmean(np.array(regional_max), axis=0)
 
-            df = pd.DataFrame(df.mean(axis=1), columns=[f"mean_{self.species}"])
+            # Create dataframe for regional data
+            df = pd.DataFrame({f"mean_{self.species}":regional_mean, f"min_{self.species}":regional_min, f"max_{self.species}":regional_max}, 
+                              index=pd.DatetimeIndex(data["x"]))
+
+            # df = pd.DataFrame(df.mean(axis=1), columns=[f"mean_{self.species}"])
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "laqn-regional", type="dataset",
                 description=f"Regional {self.region} average LAQN {self.species} data from {df.index.min()} to {df.index.max()}.",
                 metadata={"source":self.url,
                          "shapes":[df[column].shape for column in columns],
+                         "columns": columns,
                          "species":self.species})
             for column in columns:
                 with regional_data.new_file(column + ".npz", mode="wb") as file:
