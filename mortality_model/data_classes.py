@@ -103,19 +103,19 @@ class LAQNData():
         artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
         data_folder = artifact.download()
         df = pd.DataFrame()
-        if artifact_name == "laqn-regional":
-            filepath = path.join(data_folder, f"mean_{self.species}.npz")
+        # if artifact_name == "laqn-regional":
+        #     filepath = path.join(data_folder, f"mean_{self.species}.npz")
+        #     data = np.load(filepath, allow_pickle=True)
+        #     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
+        # else:
+        for file in listdir(data_folder):
+            site = file.replace(".npz", "")
+            filepath = path.join(data_folder, file)
             data = np.load(filepath, allow_pickle=True)
-            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
-        else:
-            for file in listdir(data_folder):
-                site = file.replace(".npz", "")
-                filepath = path.join(data_folder, file)
-                data = np.load(filepath, allow_pickle=True)
-                if df.empty:
-                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                else:
-                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+            if df.empty:
+                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+            else:
+                df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
                                
         return df
     
