@@ -498,18 +498,45 @@ class MetData():
 
             run.log_artifact(raw_data)
     
+    # def read(self, variables, artifact_name):
+    #     artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
+    #     data_folder = artifact.download()
+    #     df = pd.DataFrame()
+    #     for variable in variables:
+    #         filepath = path.join(data_folder, f"{variable}.npz")
+    #         data = np.load(filepath, allow_pickle=True)
+    #         if df.empty:
+    #             df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
+    #         else:
+    #             df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+    #     return df
+
     def read(self, variables, artifact_name):
         artifact = wandb.Api().artifact(f"{project}/{artifact_name}:latest")
         data_folder = artifact.download()
-        df = pd.DataFrame()
+        dfs = []  # List to hold individual DataFrames for each variable
+
         for variable in variables:
             filepath = path.join(data_folder, f"{variable}.npz")
             data = np.load(filepath, allow_pickle=True)
-            if df.empty:
-                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
-            else:
-                df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+            variable_data = {}  # Dictionary to hold data for each statistic
+
+            # Extract each statistic (mean, min, max) for the current variable
+            for stat in ['mean', 'min', 'max']:
+                column_name = f"{variable}_{stat}"  # Construct column name
+                variable_data[stat] = pd.Series(data[stat], index=data['x'], name=column_name)
+
+            # Concatenate the statistics for the current variable into a single DataFrame
+            variable_df = pd.concat(variable_data.values(), axis=1)
+
+            # Append the DataFrame for the current variable to the list
+            dfs.append(variable_df)
+
+        # Concatenate all DataFrames in the list along the columns axis
+        df = pd.concat(dfs, axis=1)
+
         return df
+
     
     def resample_time_and_log(self, date_index):
         variables = ["temperature", "dew_point", "humidity", "precip", "wind_dir", "wind_speed", "peak_gust", "pressure"]
@@ -528,17 +555,28 @@ class MetData():
             start, end = date_index.min(), date_index.max()
             df = df.loc[df.index <= end]
             df = df.loc[df.index >= start]
-            # resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).mean()
-            resampled_df = df.resample("D").mean()
-            columns = resampled_df.columns.to_list()
+            # resampled_df = df.resample("D").mean()
+            # Resample to daily frequency and compute mean, min, and max
+            resampled_df = df.groupby(date_index[date_index.searchsorted(df.index)]).agg({'mean', 'min', 'max'})
+
+            # Include metadata about the aggregation functions
+            aggregation_functions = ['mean', 'min', 'max']
+            metadata = {'aggregation_functions': aggregation_functions}
+
+            columns = list(set([col[0] for col in resampled_df.columns]))
+            # columns = resampled_df.columns.to_list()
             resample_data = wandb.Artifact(
                 "met-resample", type="dataset",
                 description=f"Resampled meteorology data from the {self.station} weather station, split according to meteorological variables.",
                 metadata={"shapes":[resampled_df[column].shape for column in columns],
-                         "columns":columns})
+                         "columns":columns,
+                         "aggregation_functions": metadata["aggregation_functions"]})
             for column in columns:
                 with resample_data.new_file(column + ".npz", mode="wb") as file:
-                        np.savez(file, x=resampled_df.index, y=resampled_df[column].values)
+                        np.savez(file, x=resampled_df.index, 
+                                 mean=resampled_df[column]['mean'].values,
+                                 min=resampled_df[column]['min'].values,
+                                 max=resampled_df[column]['max'].values)
 
             run.log_artifact(resample_data)
         

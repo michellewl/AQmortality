@@ -42,16 +42,47 @@ class HealthModel():
             df = pd.DataFrame()
             # use dataset artifacts
             for artifact in self.input_artifacts:
+                print(artifact)
                 data_artifact = run.use_artifact(f"{artifact}:latest")
                 data_folder = data_artifact.download()
                 if artifact == "met-resample":
+                    dfs = []  # List to hold individual DataFrames for each variable
                     for variable in self.met_variables:
-                        file = f"{variable}.npz"
-                        data = np.load(path.join(data_folder, file), allow_pickle=True)
+                        # file = f"{variable}.npz"
+                        # data = np.load(path.join(data_folder, file), allow_pickle=True)
+                        # if df.empty:
+                        #     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
+                        # else:
+                        #     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+
+                        filepath = path.join(data_folder, f"{variable}.npz")
+                        data = np.load(filepath, allow_pickle=True)
+                        variable_data = {}  # Dictionary to hold data for each statistic
+
+                        # Extract each statistic (mean, min, max) for the current variable
+                        for stat in ['mean', 'min', 'max']:
+                            column_name = f"{variable}_{stat}"  # Construct column name
+                            variable_data[stat] = pd.Series(data[stat], index=data['x'], name=column_name)
+
+                        # Concatenate the statistics for the current variable into a single DataFrame
+                        variable_df = pd.concat(variable_data.values(), axis=1)
+
+                        # Append the DataFrame for the current variable to the list
+                        dfs.append(variable_df)
+
+                    # Concatenate all DataFrames in the list along the columns axis
+                    df = pd.concat(dfs, axis=1)
+
+                elif artifact == "laqn-regional":
+                    for file in listdir(data_folder):
+                        site = file.replace(".npz", "")
+                        filepath = path.join(data_folder, file)
+                        data = np.load(filepath, allow_pickle=True)
                         if df.empty:
-                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
+                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
                         else:
-                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
+                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+
                 else:
                     file = listdir(data_folder)[0]
                     data = np.load(path.join(data_folder, file), allow_pickle=True)
@@ -59,7 +90,7 @@ class HealthModel():
                         df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
                     else:
                         df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
-
+        
             target_artifact = run.use_artifact("mortality-scaled:latest")
             target_folder = target_artifact.download()
             data = np.load(path.join(target_folder, "deaths.npz"), allow_pickle=True)
@@ -102,6 +133,7 @@ class HealthModel():
                 with subset_data.new_file(subset + ".npz", mode="wb") as file:
                     np.savez(file, x=x, y=y, z=z)
                 run.log_artifact(subset_data)
+        return df
                 
 #     def read_data(self, artifact):
 #         with wandb.init(project="AQmortality", job_type="read-data") as run:
