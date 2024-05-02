@@ -71,13 +71,18 @@ class HealthModel():
                         dfs.append(variable_df)
 
                     # Concatenate all DataFrames in the list along the columns axis
-                    df = pd.concat(dfs, axis=1)
+                    if df.empty:
+                        df = pd.concat(dfs, axis=1).copy()
+                    else:
+                        df = df.join(pd.concat(dfs, axis=1))
+
 
                 elif artifact == "laqn-regional":
                     for file in listdir(data_folder):
                         site = file.replace(".npz", "")
                         filepath = path.join(data_folder, file)
                         data = np.load(filepath, allow_pickle=True)
+                        print(data["y"].shape)
                         if df.empty:
                             df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
                         else:
@@ -90,7 +95,7 @@ class HealthModel():
                         df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
                     else:
                         df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
-        
+            print(df.columns)
             target_artifact = run.use_artifact("mortality-scaled:latest")
             target_folder = target_artifact.download()
             data = np.load(path.join(target_folder, "deaths.npz"), allow_pickle=True)
