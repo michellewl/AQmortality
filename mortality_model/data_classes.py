@@ -194,7 +194,7 @@ class LAQNData():
             regional_max = np.nanmean(np.array(regional_max), axis=0)
 
             # Create dataframe for regional data
-            df = pd.DataFrame({f"mean_{self.species}":regional_mean, f"min_{self.species}":regional_min, f"max_{self.species}":regional_max}, 
+            df = pd.DataFrame({f"{self.species}_mean":regional_mean, f"{self.species}_min":regional_min, f"{self.species}_max":regional_max}, 
                               index=pd.DatetimeIndex(data["x"]))
 
             # df = pd.DataFrame(df.mean(axis=1), columns=[f"mean_{self.species}"])
