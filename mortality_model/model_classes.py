@@ -23,10 +23,11 @@ class HealthModel():
         self.train_size = config["train_size"]
         self.val_size = config["val_size"]
         if config["hidden_layer_sizes"]:
-            if config["met_variables"]:
-                self.hidden_layer_sizes = [len(config["input_artifacts"])+len(config["met_variables"])-1] +config["hidden_layer_sizes"]
-            else:
-                self.hidden_layer_sizes = [len(config["input_artifacts"])] +config["hidden_layer_sizes"]
+            self.hidden_layer_sizes = config["hidden_layer_sizes"]
+        #     if config["met_variables"]:
+        #         self.hidden_layer_sizes = [len(config["input_artifacts"])+len(config["met_variables"])-1] +config["hidden_layer_sizes"]
+        #     else:
+        #         self.hidden_layer_sizes = [len(config["input_artifacts"])] +config["hidden_layer_sizes"]
         self.batch_size = config["batch_size"]
         self.num_epochs = config["num_epochs"]
         self.learning_rate = config["learning_rate"]
@@ -110,9 +111,9 @@ class HealthModel():
             # make new train, validation and test artifacts for regional scale data
             if self.val_size:
                 index = {"train": df.index[:int(len(df.index)*self.train_size)],
-                         "validat": df.index[int(len(df.index)*self.train_size):int(len(df.index)*(self.train_size+self.val_size))],
+                         "val": df.index[int(len(df.index)*self.train_size):int(len(df.index)*(self.train_size+self.val_size))],
                         "test": df.index[int(len(df.index)*(self.train_size+self.val_size)):]}
-                subsets = ["train", "validat", "test"]
+                subsets = ["train", "val", "test"]
             else:
                 index = {"train": df.index[:int(len(df.index)*self.train_size)],
                         "test": df.index[int(len(df.index)*self.train_size):]}
@@ -153,7 +154,7 @@ class HealthModel():
         data_dict = {}
         with wandb.init(project="AQmortality", job_type="train-regional-model", config=self.config) as run:
             if self.val_size:
-                subsets = ["train", "validat"]
+                subsets = ["train", "val"]
             else:
                 subsets = ["train"]
             for subset in subsets:
@@ -172,8 +173,9 @@ class HealthModel():
                        "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_train"], data_dict["y_predict"])
                       })
             elif model_type == "MLP-regressor":
-                regressor, epoch = MLPRegression(self.hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
-                                                                              data_dict["x_validat"], data_dict["y_validat"], 
+                hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                regressor, epoch = MLPRegression(hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
+                                                                              data_dict["x_val"], data_dict["y_val"], 
                                                                               self.batch_size, self.num_epochs, self.learning_rate)
         # log trained model artifact – include input features description
             metadata = {"input_shape":data_dict["x_train"].shape, 
@@ -185,7 +187,7 @@ class HealthModel():
                         "input_artifacts": self.input_artifacts,
                         "met_variables": self.met_variables}
             if model_type == "MLP-regressor":
-                metadata.update({"layer_sizes": self.hidden_layer_sizes})
+                metadata.update({"layer_sizes": hidden_layer_sizes})
             model = wandb.Artifact(
                             f"{model_type}", type="model",
                             description=f"{model_type} model.",
@@ -205,7 +207,7 @@ class HealthModel():
         with wandb.init(project="AQmortality", job_type="test-regional-model", config=self.config) as run:
             data_dict = {}
             if self.val_size:
-                subsets = ["train", "validat", "test"]
+                subsets = ["train", "val", "test"]
             else:
                 subsets = ["train", "test"]
             for subset in subsets:
@@ -229,7 +231,8 @@ class HealthModel():
                            "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_test"], data_dict["y_test_predict"])
                           })
             elif model_type == "MLP-regressor":
-                regressor = MLPRegression(self.hidden_layer_sizes)
+                hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                regressor = MLPRegression(hidden_layer_sizes)
                 checkpoint = torch.load(path.join(model_folder, "model.tar"))
                 regressor.evaluate(checkpoint, data_dict["x_test"], data_dict["y_test"], self.batch_size)
                 for subset in subsets:
@@ -280,7 +283,10 @@ class HealthModel():
                 data_dict.update({f"x_{subset}": data["x"], f"y_{subset}": data["y"], subset+"_dates": data["z"]})
 
             # Shift mortality data for test set by the desired time lag
-            data_dict["y_test_baseline"] = data_dict["y_test"][:-self.target_shift]
+                if self.target_shift > 0:
+                    data_dict["y_test_baseline"] = data_dict["y_test"][:-self.target_shift]
+                elif self.target_shift == 0 :
+                    data_dict["y_test_baseline"] = data_dict["y_test"]
             data_dict["y_test"] = data_dict["y_test"][self.target_shift:]
 
             # Evaluate the performance of the baseline model
