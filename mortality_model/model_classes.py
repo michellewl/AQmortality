@@ -77,25 +77,26 @@ class HealthModel():
                     else:
                         df = df.join(pd.concat(dfs, axis=1))
 
-
                 elif artifact == "laqn-regional":
                     for file in listdir(data_folder):
-                        site = file.replace(".npz", "")
+                        column = file.replace(".npz", "")
                         filepath = path.join(data_folder, file)
                         data = np.load(filepath, allow_pickle=True)
-                        print(data["y"].shape)
+                        # print(data["y"].shape)
                         if df.empty:
-                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
                         else:
-                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
 
+                elif artifact == "income-regional":
+                     for file in listdir(data_folder):
+                        data = np.load(path.join(data_folder, file), allow_pickle=True)
+                        if df.empty:
+                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
+                        else:
+                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
                 else:
-                    file = listdir(data_folder)[0]
-                    data = np.load(path.join(data_folder, file), allow_pickle=True)
-                    if df.empty:
-                        df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
-                    else:
-                        df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
+                    print(f"input_artifact {artifact} not recognised.")
             print(df.columns)
             target_artifact = run.use_artifact("mortality-scaled:latest")
             target_folder = target_artifact.download()

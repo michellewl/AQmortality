@@ -21,7 +21,7 @@ project = "AQmortality"
 
 class LAQNData():
     def __init__(self, species, region):
-        self.species = species
+        self.species = species # list
         self.region = region
         self.url = f"http://api.erg.kcl.ac.uk/AirQuality/Information/MonitoringSites/GroupName={self.region}/Json"
                
@@ -30,54 +30,60 @@ class LAQNData():
         self.site_codes = self.sites_df["@SiteCode"].tolist()
 
     def download(self, start_date, end_date, verbose=True):
-        self.start_date = start_date
-        self.end_date = end_date
-        laqn_df = pd.DataFrame()
-        
-        if verbose:
-            progress_bar = tqdm(self.site_codes)
-        else:
-            progress_bar = self.site_codes
+        dfs = []
+        for species in self.species:
+            print(f"Downloading {species} data for the {self.region} region from {start_date} to {end_date}...")    
+            self.start_date = start_date
+            self.end_date = end_date
+            laqn_df = pd.DataFrame()
             
-        for site_code in progress_bar:
             if verbose:
-                progress_bar.set_description(f'Working on site {site_code}')
-            url_species = f"http://api.erg.kcl.ac.uk/AirQuality/Data/SiteSpecies/SiteCode={site_code}/SpeciesCode={self.species}/StartDate={self.start_date}/EndDate={self.end_date}/csv"
-            cur_df = pd.read_csv(url_species)
-            cur_df.columns = ["date", site_code]
-            cur_df.set_index("date", drop=True, inplace=True)
-
-            try:
-                if laqn_df.empty:
-                    laqn_df = cur_df.copy()
-                else:
-                    laqn_df = laqn_df.join(cur_df.copy(), how="outer")
-
-            except ValueError:  # Trying to join with duplicate column names
-                rename_dict = {}
-                for x in list(set(cur_df.columns).intersection(laqn_df.columns)):
-                    rename_dict.update({x: f"{x}_"})
-                    print(f"Renamed duplicated column:\n{rename_dict}")
-                laqn_df.rename(mapper=rename_dict, axis="columns", inplace=True)
-                if laqn_df.empty:
-                    laqn_df = cur_df.copy()
-                else:
-                    laqn_df = laqn_df.join(cur_df.copy(), how="outer")
+                progress_bar = tqdm(self.site_codes)
+            else:
+                progress_bar = self.site_codes
+                
+            for site_code in progress_bar:
                 if verbose:
-                    print(f"Joined.")
+                    progress_bar.set_description(f'Working on site {site_code}')
+                url_species = f"http://api.erg.kcl.ac.uk/AirQuality/Data/SiteSpecies/SiteCode={site_code}/SpeciesCode={species}/StartDate={self.start_date}/EndDate={self.end_date}/csv"
+                cur_df = pd.read_csv(url_species)
+                cur_df.columns = ["date", f"{species}_{site_code}"]
+                cur_df.set_index("date", drop=True, inplace=True)
 
-            except KeyError:  # Trying to join along indexes that don't match
-                print(f"Troubleshooting {site_code}...")
-                cur_df.index = cur_df.index + ":00"
-                if laqn_df.empty:
-                    laqn_df = cur_df.copy()
-                else:
-                    laqn_df = laqn_df.join(cur_df.copy(), how="outer")
-                print(f"{site_code} joined.")
+                try:
+                    if laqn_df.empty:
+                        laqn_df = cur_df.copy()
+                    else:
+                        laqn_df = laqn_df.join(cur_df.copy(), how="outer")
 
-        #print("Data download complete. Removing sites with 0 data...")
-        laqn_df.dropna(axis="columns", how="all", inplace=True)
-        return laqn_df
+                except ValueError:  # Trying to join with duplicate column names
+                    rename_dict = {}
+                    for x in list(set(cur_df.columns).intersection(laqn_df.columns)):
+                        rename_dict.update({x: f"{x}_"})
+                        print(f"Renamed duplicated column:\n{rename_dict}")
+                    laqn_df.rename(mapper=rename_dict, axis="columns", inplace=True)
+                    if laqn_df.empty:
+                        laqn_df = cur_df.copy()
+                    else:
+                        laqn_df = laqn_df.join(cur_df.copy(), how="outer")
+                    if verbose:
+                        print(f"Joined.")
+
+                except KeyError:  # Trying to join along indexes that don't match
+                    print(f"Troubleshooting {site_code}...")
+                    cur_df.index = cur_df.index + ":00"
+                    if laqn_df.empty:
+                        laqn_df = cur_df.copy()
+                    else:
+                        laqn_df = laqn_df.join(cur_df.copy(), how="outer")
+                    print(f"{site_code} joined.")
+
+            #print("Data download complete. Removing sites with 0 data...")
+            laqn_df.dropna(axis="columns", how="all", inplace=True)
+            dfs.append(laqn_df)
+            # concatenate list of dataframes along columns axis
+        df = pd.concat(dfs, axis=1)
+        return df
         
     def download_and_log(self, start_date, end_date):
         with wandb.init(project=project, job_type="load-data") as run:
@@ -109,13 +115,13 @@ class LAQNData():
         #     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[f"mean_{self.species}"])
         # else:
         for file in listdir(data_folder):
-            site = file.replace(".npz", "")
+            column = file.replace(".npz", "")
             filepath = path.join(data_folder, file)
             data = np.load(filepath, allow_pickle=True)
             if df.empty:
-                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
             else:
-                df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
+                df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
                                
         return df
     
@@ -172,32 +178,33 @@ class LAQNData():
         with wandb.init(project=project, job_type="regional-average-data") as run:
             artifact = run.use_artifact('laqn-resample:latest')
             data_folder = artifact.download()
-            # df = pd.DataFrame()
-            regional_mean = []
-            regional_min = []
-            regional_max = []
-            for file in listdir(data_folder):
-                site = file.replace(".npz", "")
-                filepath = path.join(data_folder, file)
-                data = np.load(filepath, allow_pickle=True)
-                # if df.empty:
-                #     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
-                # else:
-                #     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
-                regional_mean.append(data["mean"])
-                regional_min.append(data["min"])
-                regional_max.append(data["max"])
             
-            # Spatially aggreagate by taking the mean across all sites for each timestep
-            regional_mean = np.nanmean(np.array(regional_mean), axis=0)
-            regional_min = np.nanmean(np.array(regional_min), axis=0)
-            regional_max = np.nanmean(np.array(regional_max), axis=0)
+            dfs = []
 
-            # Create dataframe for regional data
-            df = pd.DataFrame({f"{self.species}_mean":regional_mean, f"{self.species}_min":regional_min, f"{self.species}_max":regional_max}, 
-                              index=pd.DatetimeIndex(data["x"]))
+            for species in self.species:
+                print(species)
+                regional_mean = []
+                regional_min = []
+                regional_max = []
+                for file in [file for file in listdir(data_folder) if species in file]:
+                    filepath = path.join(data_folder, file)
+                    data = np.load(filepath, allow_pickle=True)
 
-            # df = pd.DataFrame(df.mean(axis=1), columns=[f"mean_{self.species}"])
+                    regional_mean.append(data["mean"])
+                    regional_min.append(data["min"])
+                    regional_max.append(data["max"])
+                
+                # Spatially aggreagate by taking the mean across all sites for each timestep
+                regional_mean = np.nanmean(np.array(regional_mean), axis=0)
+                regional_min = np.nanmean(np.array(regional_min), axis=0)
+                regional_max = np.nanmean(np.array(regional_max), axis=0)
+
+                # Create dataframe for regional data
+                df = pd.DataFrame({f"{species}_mean":regional_mean, f"{species}_min":regional_min, f"{species}_max":regional_max}, 
+                                index=pd.DatetimeIndex(data["x"]))
+                dfs.append(df)
+            df = pd.concat(dfs, axis=1)
+
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "laqn-regional", type="dataset",
@@ -877,7 +884,7 @@ class IncomeData():
                         df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"].astype(float), columns=[site]))
                 except FileNotFoundError:
                     continue
-            
+            # Interpolate annual values to daily resolution
             resampled_df = df.resample(key).asfreq().interpolate(method=method)
             columns = resampled_df.columns.to_list()
             resample_data = wandb.Artifact(
@@ -910,11 +917,11 @@ class IncomeData():
                 else:
                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
 
-            df = pd.DataFrame(df.median(axis=1), columns=[f"income"])
+            df = pd.DataFrame({"income_min":df.min(axis=1), "income_median":df.median(axis=1), "income_max":df.max(axis=1)}, index=df.index)
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "income-regional", type="dataset",
-                description=f"Regional median disposable income data at interpolated daily resolution.",
+                description=f"Regional minimum, median, maximum disposable income data at interpolated daily resolution.",
                 metadata={"shapes":[df[column].shape for column in columns],
                          "columns":columns})
             for column in columns:
