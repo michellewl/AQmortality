@@ -36,6 +36,7 @@ class HealthModel():
         self.temporal_resolution = config["temporal_resolution"]
         self.input_artifacts = config["input_artifacts"]
         self.met_variables = config["met_variables"]
+        self.income_variables = config["income_variables"]
         self.target_shift = config["target_shift"]
 
     def preprocess_and_log(self):
@@ -89,12 +90,15 @@ class HealthModel():
                             df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
 
                 elif artifact == "income-regional":
-                     for file in listdir(data_folder):
-                        data = np.load(path.join(data_folder, file), allow_pickle=True)
-                        if df.empty:
-                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
-                        else:
-                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
+                     dfs = []
+                     for variable in self.income_variables:
+                        for file in listdir(data_folder):
+                            if variable in file:
+                                data = np.load(path.join(data_folder, file), allow_pickle=True)
+                                if df.empty:
+                                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
+                                else:
+                                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
                 else:
                     print(f"input_artifact {artifact} not recognised.")
             print(df.columns)
@@ -186,7 +190,8 @@ class HealthModel():
                         "spatial_resolution": self.spatial_resolution,
                         "temporal_resolution": self.temporal_resolution,
                         "input_artifacts": self.input_artifacts,
-                        "met_variables": self.met_variables}
+                        "met_variables": self.met_variables,
+                        "income_variables": self.income_variables}
             if model_type == "MLP-regressor":
                 metadata.update({"layer_sizes": hidden_layer_sizes})
             model = wandb.Artifact(
@@ -250,7 +255,8 @@ class HealthModel():
                                       "spatial_resolution": self.spatial_resolution,
                                       "temporal_resolution": self.temporal_resolution,
                                       "input_artifacts": self.input_artifacts,
-                                      "met_variables": self.met_variables})
+                                      "met_variables": self.met_variables,
+                                      "income_variables": self.income_variables})
             
             for key in data_dict.keys():
                 with all_data.new_file(key+".npy", mode="wb") as file:

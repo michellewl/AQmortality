@@ -791,11 +791,34 @@ class IncomeData():
     def download_and_log(self, url, region_name):
         with wandb.init(project=project, job_type="load-data") as run:
             self.download(url)
-            df = self.read_xls("Table 2").transpose().set_index(0).drop(["Region", "Region name"])
-            df.columns = df.loc["LAD code"].values
-            df = df.drop("LAD code").dropna(axis=1)
-            df.index = pd.to_datetime(np.floor(np.where(df.index.values>9999, df.index.values/10, df.index.values)).astype(int), format="%Y").rename("date")
-                    
+            dfs = []
+            # GDHI overall feature
+            # df = self.read_xls("Table 2").transpose().set_index(0).drop(["Region", "Region name"])
+            # df.columns = df.loc["LAD code"].values
+            # df = df.drop("LAD code").dropna(axis=1)
+            # df.index = pd.to_datetime(np.floor(np.where(df.index.values>9999, df.index.values/10, df.index.values)).astype(int), format="%Y").rename("date")
+            # df.columns = [f"gdhi_{column}" for column in df.columns]  
+            # dfs.append(df)
+            # GDHI component features
+            df = self.read_xls("Table 7", header=1).dropna(subset=["Transaction"])
+            df.rename(columns={"20181": "2018"}, inplace=True)
+            component_rename_dict = {}
+            for component in df["Transaction"].unique():
+                component_rename_dict[component] = str(component).replace(" ", "_").replace(",", "").replace("/", "_").lower().replace("imputed_social_contributions_social_benefits", "social_benefits").replace("income_wealth_etc", "wealth")
+                
+            for component in df["Transaction"].unique():
+                income_component_df = df.loc[df["Transaction"]==component].drop(columns=["Region", "Region name", "Transaction code", "Transaction"])
+
+                income_component_df = income_component_df.transpose()
+                income_component_df.columns = income_component_df.iloc[0]
+                income_component_df.columns.name = None
+                income_component_df = income_component_df.drop(income_component_df.index[0])
+                income_component_df.index.rename("date", inplace=True)
+                income_component_df.index = pd.to_datetime(income_component_df.index, format="%Y")
+                income_component_df = income_component_df.astype(float)
+                income_component_df.columns = [component_rename_dict[component] + "_" + str(code) for code in income_component_df.columns]
+                dfs.append(income_component_df)
+            df = pd.concat(dfs, axis=1)
             columns = df.columns.to_list()
 
             raw_data = wandb.Artifact(
@@ -803,7 +826,7 @@ class IncomeData():
                 description=f"Raw annual disposable income per capita data for local authorities in {region_name} region. Data is extracted from source Excel file (not logged using Weights and Biases).",
                 metadata={"source":url,
                          "shapes":[df[column].shape for column in columns],
-                         "LAD_codes":columns})
+                         "columns":columns})
 
             for column in columns:
                 with raw_data.new_file(column + ".npz", mode="wb") as file:
@@ -833,11 +856,11 @@ class IncomeData():
             print(f"Reading {self.filename}...")
         return pd.read_csv(self.filepath, index_col=index_col, parse_dates=parse_dates)
     
-    def read_xls(self, sheet_name, verbose=False):
+    def read_xls(self, sheet_name, header=0, verbose=False):
         if verbose:
             print(f"Reading {self.filename}...")
         if self.extension == ".xls":
-            return pd.read_excel(self.filepath, sheet_name)
+            return pd.read_excel(self.filepath, sheet_name, header=header)
         elif self.extension == ".xlsx":
             workbook = load_workbook(self.filepath)
             worksheet = workbook[sheet_name]
@@ -909,21 +932,30 @@ class IncomeData():
             
             df = pd.DataFrame()
             for file in listdir(data_folder):
-                site = file.replace(".npz", "")
+                column = file.replace(".npz", "")
                 filepath = path.join(data_folder, file)
                 data = np.load(filepath, allow_pickle=True)
                 if df.empty:
-                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site])
+                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
                 else:
-                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[site]))
-
-            df = pd.DataFrame({"income_min":df.min(axis=1), "income_median":df.median(axis=1), "income_max":df.max(axis=1)}, index=df.index)
+                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
+            # Regional aggregation for each GDHI component
+            dfs = []
+            components = list(set(["_".join(column.split("_")[:-1]) for column in df.columns]))
+            for component in components:
+                component_columns = [column for column in df.columns if component in column]
+                component_df = df[component_columns]
+                regional_component_df = pd.DataFrame({f"{component}_min":component_df.min(axis=1), f"{component}_median":component_df.median(axis=1), f"{component}_max":component_df.max(axis=1)}, index=component_df.index)
+                dfs.append(regional_component_df)
+            df = pd.concat(dfs, axis=1)
+            # df = pd.DataFrame({"income_min":df.min(axis=1), "income_median":df.median(axis=1), "income_max":df.max(axis=1)}, index=df.index)
             columns = df.columns.to_list()
             regional_data = wandb.Artifact(
                 "income-regional", type="dataset",
-                description=f"Regional minimum, median, maximum disposable income data at interpolated daily resolution.",
+                description=f"Regional minimum, median, maximum disposable income component data at interpolated daily resolution.",
                 metadata={"shapes":[df[column].shape for column in columns],
-                         "columns":columns})
+                         "columns":columns,
+                         "components":components})
             for column in columns:
                 with regional_data.new_file(column + ".npz", mode="wb") as file:
                         np.savez(file, x=df.index, y=df[column].values)
