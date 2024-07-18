@@ -35,9 +35,11 @@ class HealthModel():
         self.spatial_resolution = config["spatial_resolution"]
         self.temporal_resolution = config["temporal_resolution"]
         self.input_artifacts = config["input_artifacts"]
+        self.laqn_variables = config["laqn_variables"]
         self.met_variables = config["met_variables"]
         self.income_variables = config["income_variables"]
         self.target_shift = config["target_shift"]
+        self.ablation_features = config["ablation_features"]
 
     def preprocess_and_log(self):
         with wandb.init(project="AQmortality", job_type="split-normalise-data", mode="online") as run:
@@ -79,18 +81,19 @@ class HealthModel():
                         df = df.join(pd.concat(dfs, axis=1))
 
                 elif artifact == "laqn-regional":
-                    for file in listdir(data_folder):
-                        column = file.replace(".npz", "")
-                        filepath = path.join(data_folder, file)
-                        data = np.load(filepath, allow_pickle=True)
-                        # print(data["y"].shape)
-                        if df.empty:
-                            df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
-                        else:
-                            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
+                    for variable in self.laqn_variables:
+                        for file in listdir(data_folder):
+                            if variable in file:
+                                column = file.replace(".npz", "")
+                                filepath = path.join(data_folder, file)
+                                data = np.load(filepath, allow_pickle=True)
+                                # print(data["y"].shape)
+                                if df.empty:
+                                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
+                                else:
+                                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
 
                 elif artifact == "income-regional":
-                     dfs = []
                      for variable in self.income_variables:
                         for file in listdir(data_folder):
                             if variable in file:
@@ -102,6 +105,26 @@ class HealthModel():
                 else:
                     print(f"input_artifact {artifact} not recognised.")
             print(df.columns)
+
+            # Ablation study
+            if self.ablation_features:
+                # Identify columns
+                columns = []
+                for ablation_feature in self.ablation_features:
+                    for col in df.columns:
+                        if ablation_feature in col:
+                            columns.append(col)
+                    # columns = [col for col in df.columns if ablation_feature in col]
+                print(f"Ablation - scrambled columns: {columns}")
+
+                for column in columns:
+                    # Find mean and standard deviation of feature
+                    mean = df[column].mean()
+                    std = df[column].std()
+                    # Replace column with random values from normal distribution
+                    df[column] = np.random.normal(mean, std, df[column].shape[0])
+
+            # Load mortality target data
             target_artifact = run.use_artifact("mortality-scaled:latest")
             target_folder = target_artifact.download()
             data = np.load(path.join(target_folder, "deaths.npz"), allow_pickle=True)
@@ -140,7 +163,8 @@ class HealthModel():
                                       "spatial_resolution": self.spatial_resolution,
                                       "temporal_resolution": self.temporal_resolution,
                                       "input_artifacts": self.input_artifacts,
-                                      "met_variables": self.met_variables})
+                                      "met_variables": self.met_variables,
+                                      "config": self.config})
                 with subset_data.new_file(subset + ".npz", mode="wb") as file:
                     np.savez(file, x=x, y=y, z=z)
                 run.log_artifact(subset_data)
