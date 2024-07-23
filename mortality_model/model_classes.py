@@ -40,6 +40,7 @@ class HealthModel():
         self.income_variables = config["income_variables"]
         self.target_shift = config["target_shift"]
         self.ablation_features = config["ablation_features"]
+        self.window_size = config["window_size"]
 
     def preprocess_and_log(self):
         with wandb.init(project="AQmortality", job_type="split-normalise-data", mode="online") as run:
@@ -94,17 +95,23 @@ class HealthModel():
                                     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
 
                 elif artifact == "income-regional":
-                     for variable in self.income_variables:
+                    dfs = []
+                    for variable in self.income_variables:
                         for file in listdir(data_folder):
                             if variable in file:
                                 data = np.load(path.join(data_folder, file), allow_pickle=True)
-                                if df.empty:
-                                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
-                                else:
-                                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")]))
+                                feature_df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
+                                dfs.append(feature_df)
+                    # Concatenate all DataFrames in the list along the columns axis
+                    if df.empty:
+                        df = pd.concat(dfs, axis=1).copy()
+                    else:
+                        df = df.join(pd.concat(dfs, axis=1))
                 else:
                     print(f"input_artifact {artifact} not recognised.")
             print(df.columns)
+
+            df = df.dropna(axis=0) # Drop NaN values before windowing
 
             # Ablation study
             if self.ablation_features:
@@ -124,17 +131,27 @@ class HealthModel():
                     # Replace column with random values from normal distribution
                     df[column] = np.random.normal(mean, std, df[column].shape[0])
 
+            # Apply windowing function to input features
+            print(f"Processing time lagged input windows (length {self.window_size})")
+            windowed_features_df = create_windowed_features(df, self.target_shift, self.window_size)
+
             # Load mortality target data
             target_artifact = run.use_artifact("mortality-scaled:latest")
             target_folder = target_artifact.download()
             data = np.load(path.join(target_folder, "deaths.npz"), allow_pickle=True)
-            df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"]*100000, columns=["deaths"]))
-            df = df.dropna(axis=0)
+            mortality_data = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"]*100000, columns=["deaths"])
 
-            # Offset target by time lag
-            df["deaths"] = df["deaths"].shift(self.target_shift) 
-            # Drop the corresponding number of rows at the start of the DataFrame
-            df = df.iloc[self.target_shift:]  
+            # Align the target with the windowed features
+            df = windowed_features_df.join(mortality_data['deaths'].iloc[self.window_size + self.target_shift - 1:])
+
+
+
+            return df
+
+            # # Offset target by time lag
+            # df["deaths"] = df["deaths"].shift(self.target_shift) 
+            # # Drop the corresponding number of rows at the start of the DataFrame
+            # df = df.iloc[self.target_shift:]  
 
             # make new train, validation and test artifacts for regional scale data
             if self.val_size:
@@ -352,6 +369,16 @@ class HealthModel():
 
             run.log_artifact(baseline_data)
 
+# Function to create windowed features
+def create_windowed_features(df, target_shift, window_size):
+    windowed_data = pd.DataFrame(index=df.index[window_size + target_shift - 1:])
+    
+    for col in df.columns: # don't need to do per column, can do over whole dataframe
+        windowed_data[col] = [
+            np.array(df[col].iloc[i:i+window_size].values) for i in range(len(df) - window_size - target_shift + 1)
+        ]
+    
+    return windowed_data
 
 # Metrics functions
 
