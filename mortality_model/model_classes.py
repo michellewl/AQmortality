@@ -109,7 +109,8 @@ class HealthModel():
                         df = df.join(pd.concat(dfs, axis=1))
                 else:
                     print(f"input_artifact {artifact} not recognised.")
-            print(df.columns)
+            input_columns = df.columns
+            print("input columns: ", input_columns)
 
             df = df.dropna(axis=0) # Drop NaN values before windowing
 
@@ -130,51 +131,51 @@ class HealthModel():
                     std = df[column].std()
                     # Replace column with random values from normal distribution
                     df[column] = np.random.normal(mean, std, df[column].shape[0])
-
-            # Apply windowing function to input features
-            print(f"Processing time lagged input windows (length {self.window_size})")
-            windowed_features_df = create_windowed_features(df, self.target_shift, self.window_size)
-
+            
             # Load mortality target data
             target_artifact = run.use_artifact("mortality-scaled:latest")
             target_folder = target_artifact.download()
             data = np.load(path.join(target_folder, "deaths.npz"), allow_pickle=True)
             mortality_data = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"]*100000, columns=["deaths"])
-
-            # Align the target with the windowed features
-            df = windowed_features_df.join(mortality_data['deaths'].iloc[self.window_size + self.target_shift - 1:])
-
-
-
-            return df
-
-            # # Offset target by time lag
-            # df["deaths"] = df["deaths"].shift(self.target_shift) 
-            # # Drop the corresponding number of rows at the start of the DataFrame
-            # df = df.iloc[self.target_shift:]  
+            df = df.join(mortality_data)
 
             # make new train, validation and test artifacts for regional scale data
             if self.val_size:
                 index = {"train": df.index[:int(len(df.index)*self.train_size)],
-                         "val": df.index[int(len(df.index)*self.train_size):int(len(df.index)*(self.train_size+self.val_size))],
+                            "val": df.index[int(len(df.index)*self.train_size):int(len(df.index)*(self.train_size+self.val_size))],
                         "test": df.index[int(len(df.index)*(self.train_size+self.val_size)):]}
                 subsets = ["train", "val", "test"]
             else:
                 index = {"train": df.index[:int(len(df.index)*self.train_size)],
                         "test": df.index[int(len(df.index)*self.train_size):]}
                 subsets = ["train", "test"]
-            
+
             scaler = MinMaxScaler()
             x_scaler = scaler.fit(df.loc[index["train"]].drop("deaths", axis=1)) # Fit the scaler only to the training set distribution
             for subset in subsets:
-                x = x_scaler.transform(df.loc[index[subset]].drop("deaths", axis=1))
-                y = df.loc[index[subset]]["deaths"].values
-                z = df.loc[index[subset]].index
+                print("\n", subset)
+                inputs = x_scaler.transform(df.loc[index[subset]].drop("deaths", axis=1)) # Apply the scaler to each subset
+                targets = df.loc[index[subset]]["deaths"].values
+                datetime = df.loc[index[subset]].index
+                print("inputs", inputs.shape)
+                print("targets", targets.shape)
+                print("datetime index", datetime.shape)
+                input_df = pd.DataFrame(index=pd.DatetimeIndex(datetime), data=inputs, columns=input_columns)
+                target_df = pd.DataFrame(index=pd.DatetimeIndex(datetime), data=targets, columns=["deaths"])
+
+                # Apply windowing function to input features
+                print(f"Processing time lagged input windows (length {self.window_size})")
+                datetime, inputs = create_windowed_features(input_df, self.target_shift, self.window_size)
+                targets = target_df.loc[datetime].values
+                print("inputs (before flattening)", inputs.shape)
+                print("targets", targets.shape)
+                print("datetime index", datetime.shape)
+            
                 subset_data = wandb.Artifact(
                             f"xy_{subset}", type="dataset",
                             description=f"Input features (normalised) and targets for {subset}ing set.",
-                            metadata={"input_shape":x.shape,
-                                     "target_shape":y.shape,
+                            metadata={"input_shape":inputs.shape,
+                                     "target_shape":targets.shape,
                                      "target_shift":self.target_shift,
                                      "species": self.species,
                                       "spatial_resolution": self.spatial_resolution,
@@ -183,9 +184,9 @@ class HealthModel():
                                       "met_variables": self.met_variables,
                                       "config": self.config})
                 with subset_data.new_file(subset + ".npz", mode="wb") as file:
-                    np.savez(file, x=x, y=y, z=z)
+                    np.savez(file, x=inputs.reshape(inputs.shape[0], inputs.shape[1]*inputs.shape[2]), y=targets, z=datetime)
                 run.log_artifact(subset_data)
-        return df
+        return inputs, targets, datetime
                 
 #     def read_data(self, artifact):
 #         with wandb.init(project="AQmortality", job_type="read-data") as run:
@@ -219,7 +220,9 @@ class HealthModel():
                        "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_train"], data_dict["y_predict"])
                       })
             elif model_type == "MLP-regressor":
+                print("x_train shape", data_dict["x_train"].shape[1])
                 hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                print("hidden layer sizes", hidden_layer_sizes)
                 regressor, epoch = MLPRegression(hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
                                                                               data_dict["x_val"], data_dict["y_val"], 
                                                                               self.batch_size, self.num_epochs, self.learning_rate)
@@ -371,14 +374,9 @@ class HealthModel():
 
 # Function to create windowed features
 def create_windowed_features(df, target_shift, window_size):
-    windowed_data = pd.DataFrame(index=df.index[window_size + target_shift - 1:])
-    
-    for col in df.columns: # don't need to do per column, can do over whole dataframe
-        windowed_data[col] = [
-            np.array(df[col].iloc[i:i+window_size].values) for i in range(len(df) - window_size - target_shift + 1)
-        ]
-    
-    return windowed_data
+    index = pd.DatetimeIndex(df.index[window_size + target_shift - 1:])
+    windowed_data = np.array([np.array(df.iloc[i:i+window_size].values) for i in range(len(df) - window_size - target_shift + 1)])
+    return index, windowed_data
 
 # Metrics functions
 
@@ -460,7 +458,7 @@ class MLPRegression():
 
                 # Run the forward pass
                 y_predict = model(inputs_training)
-                y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict.detach().numpy())
+                y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = y_predict.detach().numpy().reshape(-1,1)
                 # Compute the loss and gradients
                 single_loss = criterion(y_predict, targets_training)
                 single_loss.backward()
@@ -481,7 +479,7 @@ class MLPRegression():
                     inputs_val = data["inputs"]
                     targets_val = data["targets"]
                     y_predict_validation = model(inputs_val)
-                    y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict_validation.detach().numpy())
+                    y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = y_predict_validation.detach().numpy().reshape(-1,1)
                     single_loss = criterion(y_predict_validation, targets_val)
                     validation_loss_sum += single_loss.item()*data["targets"].shape[0]
                     
@@ -546,7 +544,7 @@ class MLPRegression():
                 inputs = data["inputs"]
                 targets = data["targets"]
                 outputs = model(inputs)
-                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
+                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = outputs.detach().numpy().reshape(-1,1)
                 
         for metric in ["r2", "mse", "mape", "smape", "rmse"]:
             metrics_scores.update({f"{metric}_test": self.metrics_functions[metric](y_test, y_predict)})
@@ -572,7 +570,7 @@ class MLPRegression():
                 inputs = data["inputs"]
                 targets = data["targets"]
                 outputs = model(inputs)
-                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
+                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = outputs.detach().numpy().reshape(-1,1)
         return y_predict
         
     
