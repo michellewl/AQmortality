@@ -220,8 +220,10 @@ class HealthModel():
                 data = np.load(path.join(data_folder, file), allow_pickle=True)
                 data_dict.update({"x_"+subset: data["x"], "y_"+subset: data["y"]})
             if model_type == "linear-regressor":
-                regressor = LinearRegression().fit(data_dict["x_train"], data_dict["y_train"])
-                data_dict.update({"y_predict": regressor.predict(data_dict["x_train"])})
+                x_train = data_dict["x_train"].reshape(data_dict["x_train"].shape[0], -1)
+                y_train = data_dict["y_train"]
+                regressor = LinearRegression().fit(x_train, y_train)
+                data_dict.update({"y_predict": regressor.predict(x_train)})
                 wandb.log({"r_squared": r2_score(data_dict["y_train"], data_dict["y_predict"]),
                        "mean_squared_error": mean_squared_error(data_dict["y_train"], data_dict["y_predict"]),
                        "mean_absolute_percentage_error": mape_score(data_dict["y_train"], data_dict["y_predict"]),
@@ -229,8 +231,13 @@ class HealthModel():
                        "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_train"], data_dict["y_predict"])
                       })
             elif model_type == "MLP-regressor":
-                print("x_train shape", data_dict["x_train"].shape[1])
-                hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                print("x_train shape", data_dict["x_train"].shape)
+                if len(data_dict["x_train"].shape) == 2:
+                    hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                elif len(data_dict["x_train"].shape) == 3:
+                    hidden_layer_sizes = [data_dict["x_train"].shape[1] * data_dict["x_train"].shape[2]] + self.hidden_layer_sizes
+                else:
+                    raise ValueError(f"Error in calculating network layer sizes. x_train has shape {data_dict['x_train'].shape}")
                 print("hidden layer sizes", hidden_layer_sizes)
                 regressor, epoch = MLPRegression(hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
                                                                               data_dict["x_val"], data_dict["y_val"], 
@@ -281,7 +288,8 @@ class HealthModel():
             if model_type == "linear-regressor":
                 regressor = joblib.load(path.join(model_folder, "model.sav"))
                 for subset in subsets:
-                    data_dict.update({f"y_{subset}_predict": regressor.predict(data_dict[f"x_{subset}"])})
+                    x_subset = data_dict[f"x_{subset}"].reshape(data_dict[f"x_{subset}"].shape[0], -1)
+                    data_dict.update({f"y_{subset}_predict": regressor.predict(x_subset)})
     
                 wandb.log({"r_squared": r2_score(data_dict["y_test"], data_dict["y_test_predict"]), 
                            "mean_squared_error": mean_squared_error(data_dict["y_test"], data_dict["y_test_predict"]), 
@@ -290,7 +298,13 @@ class HealthModel():
                            "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_test"], data_dict["y_test_predict"])
                           })
             elif model_type == "MLP-regressor":
-                hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                if len(data_dict["x_test"].shape) == 2:
+                    hidden_layer_sizes = [data_dict["x_test"].shape[1]] + self.hidden_layer_sizes
+                elif len(data_dict["x_test"].shape) == 3:
+                    hidden_layer_sizes = [data_dict["x_test"].shape[1] * data_dict["x_test"].shape[2]] + self.hidden_layer_sizes
+                else:
+                    raise ValueError(f"Error in calculating network layer sizes. x_test has shape {data_dict['x_test'].shape}")
+        
                 regressor = MLPRegression(hidden_layer_sizes)
                 checkpoint = torch.load(path.join(model_folder, "model.tar"))
                 regressor.evaluate(checkpoint, data_dict["x_test"], data_dict["y_test"], self.batch_size)
@@ -466,6 +480,7 @@ class MLPRegression():
                 optimiser.zero_grad()
 
                 # Run the forward pass
+                inputs_training = inputs_training.view(inputs_training.size(0), -1)
                 y_predict = model(inputs_training)
                 y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict.detach().numpy())
                 # Compute the loss and gradients
@@ -487,6 +502,7 @@ class MLPRegression():
                 for batch_num, data in enumerate(validation_dataloader):
                     inputs_val = data["inputs"]
                     targets_val = data["targets"]
+                    inputs_val = inputs_val.view(inputs_val.size(0), -1)
                     y_predict_validation = model(inputs_val)
                     y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict_validation.detach().numpy())
                     single_loss = criterion(y_predict_validation, targets_val)
@@ -552,6 +568,7 @@ class MLPRegression():
             for batch_num, data in enumerate(test_dataloader):
                 inputs = data["inputs"]
                 targets = data["targets"]
+                inputs = inputs.view(inputs.size(0), -1)
                 outputs = model(inputs)
                 y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
                 
@@ -577,7 +594,7 @@ class MLPRegression():
         with torch.no_grad():
             for batch_num, data in enumerate(dataloader):
                 inputs = data["inputs"]
-                targets = data["targets"]
+                inputs = inputs.view(inputs.size(0), -1)
                 outputs = model(inputs)
                 y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
         return y_predict
@@ -592,8 +609,16 @@ class MLPArchitecture(nn.Module):
         self.output_layer = nn.Linear(hl_sizes[-1], out_size)
         
     def forward(self, x):
-        # Forward pass through each layer
-        x = x.view(x.shape[0], x.shape[1])
+        
+        # Check if the input size matches the expected size
+        expected_size = x.shape[0] * x.shape[1]
+
+        # Ensure the reshaping operation is correct
+        if expected_size == x.numel():
+            x = x.view(x.shape[0], -1)
+        else:
+            raise ValueError(f"Input size mismatch. Cannot reshape {x.shape} to ({x.shape[0]}, -1)")
+        
         # Feedforward
         for hidden_layer in self.hidden_layers:
             x = torch.relu(hidden_layer(x))
