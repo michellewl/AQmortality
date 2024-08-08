@@ -193,7 +193,7 @@ class HealthModel():
                                       "met_variables": self.met_variables,
                                       "config": self.config})
                 with subset_data.new_file(subset + ".npz", mode="wb") as file:
-                    np.savez(file, x=inputs.squeeze(), y=targets.squeeze(), z=datetime)
+                    np.savez(file, x=inputs, y=targets, z=datetime)
                 run.log_artifact(subset_data)
         return input_list, targets_list, datetime_list
                 
@@ -207,6 +207,7 @@ class HealthModel():
     
     def train_and_log(self):
         model_type = self.architecture.replace("_", "-")
+        print(model_type)
         data_dict = {}
         with wandb.init(project="AQmortality", job_type="train-regional-model", config=self.config) as run:
             if self.val_size:
@@ -242,6 +243,26 @@ class HealthModel():
                 regressor, epoch = MLPRegression(hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
                                                                               data_dict["x_val"], data_dict["y_val"], 
                                                                               self.batch_size, self.num_epochs, self.learning_rate)
+            elif model_type == "LSTM-regressor":
+                if len(data_dict["x_train"].shape) == 2:
+                    data_dict["x_train"].reshape(data_dict["x_train"].shape[0], self.window_size, -1)
+                print("x_train shape", data_dict["x_train"].shape)
+                in_size = data_dict["x_train"].shape[2]
+                print(f"in_size: {in_size}, hl_size: {self.hidden_layer_sizes[0]}")
+                regressor = LSTMRegression(in_size=in_size, hl_size=self.hidden_layer_sizes[0])
+                regressor, epoch = regressor.fit(data_dict["x_train"], data_dict["y_train"], 
+                                                 data_dict["x_val"], data_dict["y_val"], 
+                                                 self.batch_size, self.num_epochs, self.learning_rate)
+                # data_dict.update({"y_predict": regressor.predict(best_model, data_dict["x_val"], data_dict["y_val"], self.batch_size)})
+            # y_predict_train = regressor.predict(self.best_model, data_dict["x_train"], data_dict["y_train"], self.batch_size)
+            # wandb.log({"best_epoch": epoch, 
+            #            "best_r_squared_train": r2_score(data_dict["y_train"], y_predict_train),
+            #            "best_mean_squared_error_train": mean_squared_error(data_dict["y_train"], y_predict_train),
+            #            "best_mean_absolute_percentage_error_train": mape_score(data_dict["y_train"], y_predict_train),
+            #            "best_rmse_train": rmse_error(data_dict["y_train"], y_predict_train),
+            #            "best_symmetric_mean_absolute_percentage_error_train": smape_error(data_dict["y_train"], y_predict_train)
+            #           })
+
         # log trained model artifact – include input features description
             metadata = {"input_shape":data_dict["x_train"].shape, 
                         "target_shape":data_dict["y_train"].shape,
@@ -251,9 +272,14 @@ class HealthModel():
                         "temporal_resolution": self.temporal_resolution,
                         "input_artifacts": self.input_artifacts,
                         "met_variables": self.met_variables,
-                        "income_variables": self.income_variables}
+                        "income_variables": self.income_variables,
+                        "laqn_variables": self.laqn_variables,
+                        "ablation_features": self.ablation_features}
             if model_type == "MLP-regressor":
                 metadata.update({"layer_sizes": hidden_layer_sizes})
+            elif model_type == "LSTM-regressor":
+                metadata.update({"layer_sizes": (in_size, self.hidden_layer_sizes[0])})
+
             model = wandb.Artifact(
                             f"{model_type}", type="model",
                             description=f"{model_type} model.",
@@ -265,6 +291,9 @@ class HealthModel():
                 with model.new_file("model.tar", mode="wb") as file:
                     torch.save({"state_dict": regressor.state_dict(),
                     "epoch": epoch}, file)
+            elif model_type == "LSTM-regressor":
+                with model.new_file("model.tar", mode="wb") as file:
+                    torch.save({"state_dict": regressor.state_dict(), "epoch": epoch}, file)
             run.log_artifact(model)
     
     
@@ -310,7 +339,21 @@ class HealthModel():
                 regressor.evaluate(checkpoint, data_dict["x_test"], data_dict["y_test"], self.batch_size)
                 for subset in subsets:
                     data_dict.update({f"y_{subset}_predict": regressor.predict(checkpoint, data_dict[f"x_{subset}"], data_dict[f"y_{subset}"], self.batch_size)})
-  
+
+            elif model_type == "LSTM-regressor":
+                if len(data_dict["x_test"].shape) == 2:
+                    data_dict["x_test"].reshape(data_dict["x_test"].shape[0], self.window_size, -1)
+                print("x_test shape", data_dict["x_test"].shape)
+                in_size = data_dict["x_test"].shape[2]
+                print(f"in_size: {in_size}, hl_size: {self.hidden_layer_sizes[0]}")
+                hidden_layer_size = self.hidden_layer_sizes[0]  # Assuming LSTM has one hidden layer size
+                regressor = LSTMRegression(in_size, hidden_layer_size, 1)
+                checkpoint = torch.load(path.join(model_folder, "model.tar"))
+                regressor.evaluate(checkpoint, data_dict["x_test"], data_dict["y_test"], self.batch_size)
+                for subset in subsets:
+                    data_dict.update({f"y_{subset}_predict": regressor.predict(checkpoint, data_dict[f"x_{subset}"], data_dict[f"y_{subset}"], self.batch_size)})
+
+
             # Save data_dict with wandb artifacts for future use.
             all_data = wandb.Artifact(
                             f"xy_all", type="dataset",
@@ -484,7 +527,7 @@ class MLPRegression():
                 y_predict = model(inputs_training)
                 y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict.detach().numpy())
                 # Compute the loss and gradients
-                single_loss = criterion(y_predict, targets_training)
+                single_loss = criterion(torch.squeeze(y_predict), torch.squeeze(targets_training))
                 single_loss.backward()
                 # Update the parameters
                 optimiser.step()
@@ -505,7 +548,7 @@ class MLPRegression():
                     inputs_val = inputs_val.view(inputs_val.size(0), -1)
                     y_predict_validation = model(inputs_val)
                     y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict_validation.detach().numpy())
-                    single_loss = criterion(y_predict_validation, targets_val)
+                    single_loss = criterion(torch.squeeze(y_predict_validation), torch.squeeze(targets_val))
                     validation_loss_sum += single_loss.item()*data["targets"].shape[0]
                     
             for metric in ["r2", "mse", "mape", "smape", "rmse"]:
@@ -644,11 +687,161 @@ class MLPDataset(Dataset):
             x1 = x1 + noise
         return {"inputs": x1, "targets": y1}
 
+# LSTM classes
+
+class LSTMRegression():
+    def __init__(self, in_size, hl_size, out_size=1):
+        self.model = LSTMArchitecture(in_size, hl_size, out_size)
+        self.metrics_functions = {"r2": r2_score, "mse": mean_squared_error, "mape": mape_score, "smape": smape_error, "rmse": rmse_error}
+
+    def fit(self, x_train, y_train, x_val, y_val, batch_size, num_epochs, learning_rate):
+        model = self.model
+
+        training_dataset = MLPDataset(x_train, y_train)
+        validation_dataset = MLPDataset(x_val, y_val)
+
+        training_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
+        validation_dataloader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=True)
+
+        criterion = nn.MSELoss()
+        optimiser = Adam(model.parameters(), lr=learning_rate)
+
+        wandb.watch(model, criterion, log="all", log_freq=10)
+
+        training_loss_history = []
+        validation_loss_history = []
+        metrics_scores = {}
+
+        for epoch in tqdm(range(num_epochs)):
+            # Training set
+            model.train()
+            loss_sum = 0
+            y_pred_epoch = np.zeros_like(y_train)
+
+            for batch_num, data in enumerate(training_dataloader):
+                inputs_training = data["inputs"]
+                targets_training = data["targets"]
+                optimiser.zero_grad()
+
+                # Run the forward pass
+                y_predict = model(inputs_training)
+                y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.expand_dims(y_predict.detach().numpy(), axis=1)
+                
+                # Compute the loss and gradients
+                single_loss = criterion(torch.squeeze(y_predict), torch.squeeze(targets_training))
+                single_loss.backward()
+                
+                # Update the parameters
+                optimiser.step()
+
+                # Calculate loss for storing
+                loss_sum += single_loss.item() * data["targets"].shape[0]
+
+            training_loss_history.append(loss_sum / len(training_dataset))  # Save the training loss after every epoch
+            
+            # Validation set
+            model.eval()
+            validation_loss_sum = 0
+            y_pred_val_epoch = np.zeros_like(y_val)
+            with torch.no_grad():
+                for batch_num, data in enumerate(validation_dataloader):
+                    inputs_val = data["inputs"]
+                    targets_val = data["targets"]
+                    y_predict_validation = model(inputs_val)
+                    y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.expand_dims(y_predict_validation.detach().numpy(), axis=1)
+                    single_loss = criterion(torch.squeeze(y_predict_validation), torch.squeeze(targets_val))
+                    validation_loss_sum += single_loss.item() * data["targets"].shape[0]
+                    
+            for metric in ["r2", "mse", "mape", "smape", "rmse"]:
+                metrics_scores.update({f"{metric}_train": self.metrics_functions[metric](y_train, y_pred_epoch)})
+                metrics_scores.update({f"{metric}_val": self.metrics_functions[metric](y_val, y_pred_val_epoch)})
+                
+            # Store the model with smallest validation loss
+            if (not validation_loss_history) or validation_loss_sum / len(validation_dataset) < min(validation_loss_history):
+                self.best_model = deepcopy(model)
+                best_epoch = epoch
+                best_metrics = metrics_scores.copy()
+           
+            validation_loss_history.append(validation_loss_sum / len(validation_dataset))
+
+            wandb.log({"training_loss": loss_sum / len(training_dataset),
+                      "validation_loss": validation_loss_sum / len(validation_dataset), 
+                      "r2_train": metrics_scores["r2_train"],
+                      "r2_val": metrics_scores["r2_val"],
+                      "mean_squared_error_train": metrics_scores["mse_train"],
+                      "mean_squared_error_val": metrics_scores["mse_val"],
+                      "mean_absolute_percentage_error_train": metrics_scores["mape_train"],
+                       "mean_absolute_percentage_error_val": metrics_scores["mape_val"],
+                       "smape_train": metrics_scores["smape_train"], 
+                       "smape_val": metrics_scores["smape_val"], 
+                       "rmse_train": metrics_scores["rmse_train"], 
+                       "rmse_val": metrics_scores["rmse_val"]
+                      },
+                      step=epoch)
+        
+        wandb.log({"best_epoch": best_epoch, 
+                   "best_r_squared_train": best_metrics["r2_train"],
+                   "best_r_squared_val": best_metrics["r2_val"],
+                   "best_mean_squared_error_train": best_metrics["mse_train"],
+                   "best_mean_squared_error_val": best_metrics["mse_val"],
+                   "best_mean_absolute_percentage_error_train": best_metrics["mape_train"],
+                   "best_mean_absolute_percentage_error_val": best_metrics["mape_val"], 
+                   "best_smape_train": best_metrics["smape_train"], 
+                   "best_smape_val": best_metrics["smape_val"], 
+                   "best_rmse_train": best_metrics["rmse_train"], 
+                   "best_rmse_val": best_metrics["rmse_val"]
+                  })
+        
+        return  self.best_model, best_epoch
+    
+    def evaluate(self, checkpoint, x_test, y_test, batch_size):
+        model = self.model
+        model.load_state_dict(checkpoint["state_dict"])
+        
+        test_dataset = MLPDataset(x_test, y_test)
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size)
+        
+        metrics_scores = {}
+        
+        model.eval()
+        y_predict = np.zeros_like(y_test)
+        with torch.no_grad():
+            for batch_num, data in enumerate(test_dataloader):
+                inputs = data["inputs"]
+                targets = data["targets"]
+                outputs = model(inputs)
+                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.expand_dims(outputs.detach().numpy(), axis=1)
+                
+        for metric in ["r2", "mse", "mape", "smape", "rmse"]:
+            metrics_scores.update({f"{metric}_test": self.metrics_functions[metric](y_test, y_predict)})
+    
+        wandb.log({"r2_test": metrics_scores["r2_test"],
+                   "mean_squared_error_test": metrics_scores["mse_test"],
+                   "mean_absolute_percentage_error_test": metrics_scores["mape_test"], 
+                   "smape_test": metrics_scores["smape_test"], 
+                   "rmse_test": metrics_scores["rmse_test"]
+                   })
+        
+    def predict(self, checkpoint, x, y, batch_size):
+        model = self.model
+        model.load_state_dict(checkpoint["state_dict"])
+        dataset = MLPDataset(x, y)
+        dataloader = DataLoader(dataset, batch_size=batch_size)
+               
+        model.eval()
+        y_predict = np.zeros_like(y)
+        with torch.no_grad():
+            for batch_num, data in enumerate(dataloader):
+                inputs = data["inputs"]
+                outputs = model(inputs)
+                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.expand_dims(outputs.detach().numpy(), axis=1)
+        return y_predict
+
 class LSTMArchitecture(nn.Module):
     def __init__(self, in_size, hl_size, out_size):
         super().__init__()
         self.hidden_layer_size = hl_size
-        self.lstm = nn.LSTM(in_size, hl_size, batrch_first=True)
+        self.lstm = nn.LSTM(in_size, hl_size, batch_first=True)
         self.linear = nn.Linear(hl_size, out_size)
 
     def forward(self, input_seq):
