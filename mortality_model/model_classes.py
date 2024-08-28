@@ -525,7 +525,8 @@ class MLPRegression():
                 # Run the forward pass
                 inputs_training = inputs_training.view(inputs_training.size(0), -1)
                 y_predict = model(inputs_training)
-                y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict.detach().numpy())
+                # print("y_predict", y_predict.shape)
+                y_pred_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = y_predict.detach().numpy()
                 # Compute the loss and gradients
                 single_loss = criterion(torch.squeeze(y_predict), torch.squeeze(targets_training))
                 single_loss.backward()
@@ -547,7 +548,7 @@ class MLPRegression():
                     targets_val = data["targets"]
                     inputs_val = inputs_val.view(inputs_val.size(0), -1)
                     y_predict_validation = model(inputs_val)
-                    y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(y_predict_validation.detach().numpy())
+                    y_pred_val_epoch[batch_num*batch_size : (batch_num+1)*batch_size] = y_predict_validation.detach().numpy()
                     single_loss = criterion(torch.squeeze(y_predict_validation), torch.squeeze(targets_val))
                     validation_loss_sum += single_loss.item()*data["targets"].shape[0]
                     
@@ -613,7 +614,7 @@ class MLPRegression():
                 targets = data["targets"]
                 inputs = inputs.view(inputs.size(0), -1)
                 outputs = model(inputs)
-                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
+                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = outputs.detach().numpy()
                 
         for metric in ["r2", "mse", "mape", "smape", "rmse"]:
             metrics_scores.update({f"{metric}_test": self.metrics_functions[metric](y_test, y_predict)})
@@ -639,7 +640,7 @@ class MLPRegression():
                 inputs = data["inputs"]
                 inputs = inputs.view(inputs.size(0), -1)
                 outputs = model(inputs)
-                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = np.squeeze(outputs.detach().numpy())
+                y_predict[batch_num*batch_size : (batch_num+1)*batch_size] = outputs.detach().numpy()
         return y_predict
         
     
