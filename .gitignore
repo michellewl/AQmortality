@@ -13,3 +13,4 @@ core.*
 .nfs*
 v0_AQmort_env.yml
 */archive/
+*.pdf
