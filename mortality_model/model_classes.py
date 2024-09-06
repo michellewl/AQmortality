@@ -31,7 +31,6 @@ class HealthModel():
         self.batch_size = config["batch_size"]
         self.num_epochs = config["num_epochs"]
         self.learning_rate = config["learning_rate"]
-        self.species = config["species"]
         self.spatial_resolution = config["spatial_resolution"]
         self.temporal_resolution = config["temporal_resolution"]
         self.input_artifacts = config["input_artifacts"]
@@ -186,7 +185,6 @@ class HealthModel():
                             metadata={"input_shape":inputs.shape,
                                      "target_shape":targets.shape,
                                      "target_shift":self.target_shift,
-                                     "species": self.species,
                                       "spatial_resolution": self.spatial_resolution,
                                       "temporal_resolution": self.temporal_resolution,
                                       "input_artifacts": self.input_artifacts,
@@ -225,11 +223,11 @@ class HealthModel():
                 y_train = data_dict["y_train"]
                 regressor = LinearRegression().fit(x_train, y_train)
                 data_dict.update({"y_predict": regressor.predict(x_train)})
-                wandb.log({"r_squared": r2_score(data_dict["y_train"], data_dict["y_predict"]),
-                       "mean_squared_error": mean_squared_error(data_dict["y_train"], data_dict["y_predict"]),
-                       "mean_absolute_percentage_error": mape_score(data_dict["y_train"], data_dict["y_predict"]),
-                       "root_mean_squared_error": rmse_error(data_dict["y_train"], data_dict["y_predict"]),
-                       "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_train"], data_dict["y_predict"])
+                wandb.log({"r_squared_train": r2_score(data_dict["y_train"], data_dict["y_predict"]),
+                       "mse_train": mean_squared_error(data_dict["y_train"], data_dict["y_predict"]),
+                       "mape_train": mape_score(data_dict["y_train"], data_dict["y_predict"]),
+                       "rmse_train": rmse_error(data_dict["y_train"], data_dict["y_predict"]),
+                       "smape_train": smape_error(data_dict["y_train"], data_dict["y_predict"])
                       })
             elif model_type == "MLP-regressor":
                 print("x_train shape", data_dict["x_train"].shape)
@@ -257,8 +255,8 @@ class HealthModel():
             # y_predict_train = regressor.predict(self.best_model, data_dict["x_train"], data_dict["y_train"], self.batch_size)
             # wandb.log({"best_epoch": epoch, 
             #            "best_r_squared_train": r2_score(data_dict["y_train"], y_predict_train),
-            #            "best_mean_squared_error_train": mean_squared_error(data_dict["y_train"], y_predict_train),
-            #            "best_mean_absolute_percentage_error_train": mape_score(data_dict["y_train"], y_predict_train),
+            #            "best_mse_train": mean_squared_error(data_dict["y_train"], y_predict_train),
+            #            "best_mape_train": mape_score(data_dict["y_train"], y_predict_train),
             #            "best_rmse_train": rmse_error(data_dict["y_train"], y_predict_train),
             #            "best_symmetric_mean_absolute_percentage_error_train": smape_error(data_dict["y_train"], y_predict_train)
             #           })
@@ -267,7 +265,6 @@ class HealthModel():
             metadata = {"input_shape":data_dict["x_train"].shape, 
                         "target_shape":data_dict["y_train"].shape,
                         "target_shift":self.target_shift,
-                        "species": self.species,
                         "spatial_resolution": self.spatial_resolution,
                         "temporal_resolution": self.temporal_resolution,
                         "input_artifacts": self.input_artifacts,
@@ -320,11 +317,11 @@ class HealthModel():
                     x_subset = data_dict[f"x_{subset}"].reshape(data_dict[f"x_{subset}"].shape[0], -1)
                     data_dict.update({f"y_{subset}_predict": regressor.predict(x_subset)})
     
-                wandb.log({"r_squared": r2_score(data_dict["y_test"], data_dict["y_test_predict"]), 
-                           "mean_squared_error": mean_squared_error(data_dict["y_test"], data_dict["y_test_predict"]), 
-                           "mean_absolute_percentage_error": mape_score(data_dict["y_test"], data_dict["y_test_predict"]),
-                           "root_mean_squared_error": rmse_error(data_dict["y_test"], data_dict["y_test_predict"]),
-                           "symmetric_mean_absolute_percentage_error": smape_error(data_dict["y_test"], data_dict["y_test_predict"])
+                wandb.log({"r_squared_test": r2_score(data_dict["y_test"], data_dict["y_test_predict"]), 
+                           "mse_test": mean_squared_error(data_dict["y_test"], data_dict["y_test_predict"]), 
+                           "mape_test": mape_score(data_dict["y_test"], data_dict["y_test_predict"]),
+                           "rmse_test": rmse_error(data_dict["y_test"], data_dict["y_test_predict"]),
+                           "smape_test": smape_error(data_dict["y_test"], data_dict["y_test_predict"])
                           })
             elif model_type == "MLP-regressor":
                 if len(data_dict["x_test"].shape) == 2:
@@ -361,7 +358,6 @@ class HealthModel():
                             metadata={"regressor_model": self.architecture, 
                                       "data_keys":list(data_dict.keys()),
                                       "target_shift":self.target_shift,
-                                      "species": self.species,
                                       "spatial_resolution": self.spatial_resolution,
                                       "temporal_resolution": self.temporal_resolution,
                                       "input_artifacts": self.input_artifacts,
@@ -416,10 +412,10 @@ class HealthModel():
             # Log evaluation metrics
             wandb.log({
                 "baseline_r_squared": r_squared,
-                "baseline_mean_squared_error": mse,
-                "baseline_mean_absolute_percentage_error": mape,
-                "baseline_root_mean_squared_error": rmse,
-                "baseline_symmetric_mean_absolute_percentage_error": smape
+                "baseline_mse": mse,
+                "baseline_mape": mape,
+                "baseline_rmse": rmse,
+                "baseline_smape": smape
             })
 
             # Save baseline predictions with wandb artifacts for future use
@@ -568,12 +564,12 @@ class MLPRegression():
 
             wandb.log({"training_loss": loss_sum / len(training_dataset),
                       "validation_loss": validation_loss_sum / len(validation_dataset), 
-                      "r2_train": metrics_scores["r2_train"],
-                      "r2_val": metrics_scores["r2_val"],
-                      "mean_squared_error_train": metrics_scores["mse_train"],
-                      "mean_squared_error_val": metrics_scores["mse_val"],
-                      "mean_absolute_percentage_error_train": metrics_scores["mape_train"],
-                       "mean_absolute_percentage_error_val": metrics_scores["mape_val"],
+                      "r_squared_train": metrics_scores["r2_train"],
+                      "r_squared_val": metrics_scores["r2_val"],
+                      "mse_train": metrics_scores["mse_train"],
+                      "mse_val": metrics_scores["mse_val"],
+                      "mape_train": metrics_scores["mape_train"],
+                       "mape_val": metrics_scores["mape_val"],
                        "smape_train": metrics_scores["smape_train"], 
                        "smape_val": metrics_scores["smape_val"], 
                        "rmse_train": metrics_scores["rmse_train"], 
@@ -584,10 +580,10 @@ class MLPRegression():
         wandb.log({"best_epoch": best_epoch, 
                    "best_r_squared_train": best_metrics["r2_train"],
                    "best_r_squared_val": best_metrics["r2_val"],
-                   "best_mean_squared_error_train": best_metrics["mse_train"],
-                   "best_mean_squared_error_val": best_metrics["mse_val"],
-                   "best_mean_absolute_percentage_error_train": best_metrics["mape_train"],
-                   "best_mean_absolute_percentage_error_val": best_metrics["mape_val"], 
+                   "best_mse_train": best_metrics["mse_train"],
+                   "best_mse_val": best_metrics["mse_val"],
+                   "best_mape_train": best_metrics["mape_train"],
+                   "best_mape_val": best_metrics["mape_val"], 
                    "best_smape_train": best_metrics["smape_train"], 
                    "best_smape_val": best_metrics["smape_val"], 
                    "best_rmse_train": best_metrics["rmse_train"], 
@@ -619,9 +615,9 @@ class MLPRegression():
         for metric in ["r2", "mse", "mape", "smape", "rmse"]:
             metrics_scores.update({f"{metric}_test": self.metrics_functions[metric](y_test, y_predict)})
     
-        wandb.log({"r2_test": metrics_scores["r2_test"],
-                   "mean_squared_error_test": metrics_scores["mse_test"],
-                   "mean_absolute_percentage_error_test": metrics_scores["mape_test"], 
+        wandb.log({"r_squared_test": metrics_scores["r2_test"],
+                   "mse_test": metrics_scores["mse_test"],
+                   "mape_test": metrics_scores["mape_test"], 
                    "smape_test": metrics_scores["smape_test"], 
                    "rmse_test": metrics_scores["rmse_test"]
                    })
@@ -767,12 +763,12 @@ class LSTMRegression():
 
             wandb.log({"training_loss": loss_sum / len(training_dataset),
                       "validation_loss": validation_loss_sum / len(validation_dataset), 
-                      "r2_train": metrics_scores["r2_train"],
-                      "r2_val": metrics_scores["r2_val"],
-                      "mean_squared_error_train": metrics_scores["mse_train"],
-                      "mean_squared_error_val": metrics_scores["mse_val"],
-                      "mean_absolute_percentage_error_train": metrics_scores["mape_train"],
-                       "mean_absolute_percentage_error_val": metrics_scores["mape_val"],
+                      "r_squared_train": metrics_scores["r2_train"],
+                      "r_squared_val": metrics_scores["r2_val"],
+                      "mse_train": metrics_scores["mse_train"],
+                      "mse_val": metrics_scores["mse_val"],
+                      "mape_train": metrics_scores["mape_train"],
+                       "mape_val": metrics_scores["mape_val"],
                        "smape_train": metrics_scores["smape_train"], 
                        "smape_val": metrics_scores["smape_val"], 
                        "rmse_train": metrics_scores["rmse_train"], 
@@ -783,10 +779,10 @@ class LSTMRegression():
         wandb.log({"best_epoch": best_epoch, 
                    "best_r_squared_train": best_metrics["r2_train"],
                    "best_r_squared_val": best_metrics["r2_val"],
-                   "best_mean_squared_error_train": best_metrics["mse_train"],
-                   "best_mean_squared_error_val": best_metrics["mse_val"],
-                   "best_mean_absolute_percentage_error_train": best_metrics["mape_train"],
-                   "best_mean_absolute_percentage_error_val": best_metrics["mape_val"], 
+                   "best_mse_train": best_metrics["mse_train"],
+                   "best_mse_val": best_metrics["mse_val"],
+                   "best_mape_train": best_metrics["mape_train"],
+                   "best_mape_val": best_metrics["mape_val"], 
                    "best_smape_train": best_metrics["smape_train"], 
                    "best_smape_val": best_metrics["smape_val"], 
                    "best_rmse_train": best_metrics["rmse_train"], 
@@ -816,9 +812,9 @@ class LSTMRegression():
         for metric in ["r2", "mse", "mape", "smape", "rmse"]:
             metrics_scores.update({f"{metric}_test": self.metrics_functions[metric](y_test, y_predict)})
     
-        wandb.log({"r2_test": metrics_scores["r2_test"],
-                   "mean_squared_error_test": metrics_scores["mse_test"],
-                   "mean_absolute_percentage_error_test": metrics_scores["mape_test"], 
+        wandb.log({"r_squared_test": metrics_scores["r2_test"],
+                   "mse_test": metrics_scores["mse_test"],
+                   "mape_test": metrics_scores["mape_test"], 
                    "smape_test": metrics_scores["smape_test"], 
                    "rmse_test": metrics_scores["rmse_test"]
                    })
