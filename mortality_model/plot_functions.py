@@ -1,16 +1,13 @@
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-import xarray as xr
-from PyBNG import PyBNG
-import shapely
+from datetime import datetime as dt
 from os import makedirs, path, listdir, remove
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import requests
 import zipfile as zpf
 from tqdm import tqdm
-from PIL import Image
 
 
 def plot_timeseries(dataframe, columns, title, units, figure_size=(8,4)):
@@ -63,3 +60,40 @@ def plot_in_grid_box(geodataframe, column, title, figsize=(10,5), fontsize=15, m
     plt.suptitle(title, fontsize=fontsize)
     plt.show()
 
+def save_timeseries_plot(config, data_dict):
+    if not config["ablation_features"]:
+        filename = f"ablation-0.pdf"
+    else:
+        filename = f"ablation-{','.join(config['ablation_features'])}.pdf"
+    
+    directory = f"figures/window_{config['window_size']}/{config['architecture']}"
+    
+
+    # Create the directory, do not raise an error if it already exists
+    makedirs(directory, exist_ok=True)
+
+    # Set up the dataframe to plot data
+    subsets = ["train", "val", "test"] if config["val_size"] else ["train", "test"]
+    df_list = []
+    for subset in subsets:
+        subset_df = pd.DataFrame(index=pd.DatetimeIndex(data_dict[f"{subset}_dates"]), data={"observed":data_dict[f"y_{subset}"].flatten(), "predicted":data_dict[f"y_{subset}_predict"].flatten()})
+        df_list.append(subset_df)
+    df = pd.concat(df_list)
+
+    # Create the timeseries plot
+    plt.figure(figsize=(8,5), dpi=150)
+    df["observed"].plot()
+    df["predicted"].plot()
+    plt.axvline(data_dict["train_dates"].max(), color="grey")
+    plt.axvline(data_dict["val_dates"].max(), color="grey") if config["val_size"] else None
+    plt.legend()
+    plt.ylabel("deaths per 100,000")
+    plt.xlim(dt(year=1995, month=1, day=1), dt(year=2020, month=1, day=1))
+    # regressor_title = config["architecture"].replace("_", " ")
+    # plt.suptitle(f"Mortality predictions by {regressor_title} {plot_title_model}")
+
+    # Save the plot
+    file_path = path.join(directory, filename)
+    plt.savefig(file_path)
+
+    plt.close()
