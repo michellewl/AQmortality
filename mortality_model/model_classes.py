@@ -22,12 +22,8 @@ class HealthModel():
         self.architecture = config["architecture"]
         self.train_size = config["train_size"]
         self.val_size = config["val_size"]
-        if config["hidden_layer_sizes"]:
-            self.hidden_layer_sizes = config["hidden_layer_sizes"]
-        #     if config["met_variables"]:
-        #         self.hidden_layer_sizes = [len(config["input_artifacts"])+len(config["met_variables"])-1] +config["hidden_layer_sizes"]
-        #     else:
-        #         self.hidden_layer_sizes = [len(config["input_artifacts"])] +config["hidden_layer_sizes"]
+        self.hidden_layer_size = config["hidden_layer_size"]
+        self.num_layers = config["num_layers"]
         self.batch_size = config["batch_size"]
         self.num_epochs = config["num_epochs"]
         self.learning_rate = config["learning_rate"]
@@ -232,22 +228,23 @@ class HealthModel():
             elif model_type == "MLP-regressor":
                 print("x_train shape", data_dict["x_train"].shape)
                 if len(data_dict["x_train"].shape) == 2:
-                    hidden_layer_sizes = [data_dict["x_train"].shape[1]] + self.hidden_layer_sizes
+                    hidden_layer_sizes = [data_dict["x_train"].shape[1]] + [self.hidden_layer_size]*self.num_layers
                 elif len(data_dict["x_train"].shape) == 3:
-                    hidden_layer_sizes = [data_dict["x_train"].shape[1] * data_dict["x_train"].shape[2]] + self.hidden_layer_sizes
+                    hidden_layer_sizes = [data_dict["x_train"].shape[1] * data_dict["x_train"].shape[2]] + [self.hidden_layer_size]*self.num_layers
                 else:
                     raise ValueError(f"Error in calculating network layer sizes. x_train has shape {data_dict['x_train'].shape}")
                 print("hidden layer sizes", hidden_layer_sizes)
                 regressor, epoch = MLPRegression(hidden_layer_sizes).fit(data_dict["x_train"], data_dict["y_train"], 
                                                                               data_dict["x_val"], data_dict["y_val"], 
                                                                               self.batch_size, self.num_epochs, self.learning_rate)
+                print("learnable parameters: ", sum(p.numel() for p in regressor.parameters()))
             elif model_type == "LSTM-regressor":
                 if len(data_dict["x_train"].shape) == 2:
                     data_dict["x_train"].reshape(data_dict["x_train"].shape[0], self.window_size, -1)
                 print("x_train shape", data_dict["x_train"].shape)
                 in_size = data_dict["x_train"].shape[2]
-                print(f"in_size: {in_size}, hl_size: {self.hidden_layer_sizes[0]}")
-                regressor = LSTMRegression(in_size=in_size, hl_size=self.hidden_layer_sizes[0])
+                print(f"in_size: {in_size}, hl_size: {self.hidden_layer_size}, num_layers: {self.num_layers}")
+                regressor = LSTMRegression(in_size=in_size, hl_size=self.hidden_layer_size, num_layers=self.num_layers)
                 regressor, epoch = regressor.fit(data_dict["x_train"], data_dict["y_train"], 
                                                  data_dict["x_val"], data_dict["y_val"], 
                                                  self.batch_size, self.num_epochs, self.learning_rate)
@@ -275,7 +272,7 @@ class HealthModel():
             if model_type == "MLP-regressor":
                 metadata.update({"layer_sizes": hidden_layer_sizes})
             elif model_type == "LSTM-regressor":
-                metadata.update({"layer_sizes": (in_size, self.hidden_layer_sizes[0])})
+                metadata.update({"layer_sizes": (in_size, [self.hidden_layer_size]*self.num_layers)})
 
             model = wandb.Artifact(
                             f"{model_type}", type="model",
@@ -325,9 +322,9 @@ class HealthModel():
                           })
             elif model_type == "MLP-regressor":
                 if len(data_dict["x_test"].shape) == 2:
-                    hidden_layer_sizes = [data_dict["x_test"].shape[1]] + self.hidden_layer_sizes
+                    hidden_layer_sizes = [data_dict["x_test"].shape[1]] + [self.hidden_layer_size]*self.num_layers
                 elif len(data_dict["x_test"].shape) == 3:
-                    hidden_layer_sizes = [data_dict["x_test"].shape[1] * data_dict["x_test"].shape[2]] + self.hidden_layer_sizes
+                    hidden_layer_sizes = [data_dict["x_test"].shape[1] * data_dict["x_test"].shape[2]] + [self.hidden_layer_size]*self.num_layers
                 else:
                     raise ValueError(f"Error in calculating network layer sizes. x_test has shape {data_dict['x_test'].shape}")
         
@@ -342,9 +339,8 @@ class HealthModel():
                     data_dict["x_test"].reshape(data_dict["x_test"].shape[0], self.window_size, -1)
                 print("x_test shape", data_dict["x_test"].shape)
                 in_size = data_dict["x_test"].shape[2]
-                print(f"in_size: {in_size}, hl_size: {self.hidden_layer_sizes[0]}")
-                hidden_layer_size = self.hidden_layer_sizes[0]  # Assuming LSTM has one hidden layer size
-                regressor = LSTMRegression(in_size, hidden_layer_size, 1)
+                print(f"in_size: {in_size}, hl_size: {self.hidden_layer_size}, num_layers: {self.num_layers}")
+                regressor = LSTMRegression(in_size, self.hidden_layer_size, self.num_layers)
                 checkpoint = torch.load(path.join(model_folder, "model.tar"))
                 regressor.evaluate(checkpoint, data_dict["x_test"], data_dict["y_test"], self.batch_size)
                 for subset in subsets:
@@ -687,8 +683,8 @@ class MLPDataset(Dataset):
 # LSTM classes
 
 class LSTMRegression():
-    def __init__(self, in_size, hl_size, out_size=1):
-        self.model = LSTMArchitecture(in_size, hl_size, out_size)
+    def __init__(self, in_size, hl_size, num_layers, out_size=1):
+        self.model = LSTMArchitecture(in_size, hl_size, num_layers, out_size)
         self.metrics_functions = {"r2": r2_score, "mse": mean_squared_error, "mape": mape_score, "smape": smape_error, "rmse": rmse_error}
 
     def fit(self, x_train, y_train, x_val, y_val, batch_size, num_epochs, learning_rate):
@@ -835,13 +831,14 @@ class LSTMRegression():
         return y_predict
 
 class LSTMArchitecture(nn.Module):
-    def __init__(self, in_size, hl_size, out_size):
+    def __init__(self, in_size, hl_size, num_layers, out_size):
         super().__init__()
         self.hidden_layer_size = hl_size
-        self.lstm = nn.LSTM(in_size, hl_size, batch_first=True)
+        self.lstm = nn.LSTM(in_size, hl_size, num_layers=num_layers, batch_first=True)
         self.linear = nn.Linear(hl_size, out_size)
 
     def forward(self, input_seq):
         lstm_out, hidden_state_cell_state = self.lstm(input_seq)
         prediction = self.linear(lstm_out[:, -1, :]).reshape(-1)
+
         return prediction
