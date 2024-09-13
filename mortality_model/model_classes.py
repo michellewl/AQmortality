@@ -39,42 +39,26 @@ class HealthModel():
 
     def preprocess_and_log(self):
         with wandb.init(project="AQmortality", job_type="split-normalise-data", mode="online") as run:
-            df = pd.DataFrame()
+            df_list = []
             # use dataset artifacts
             for artifact in self.input_artifacts:
                 print(artifact)
                 data_artifact = run.use_artifact(f"{artifact}:latest")
                 data_folder = data_artifact.download()
-                if artifact == "met-resample":
-                    dfs = []  # List to hold individual DataFrames for each variable
-                    for variable in self.met_variables:
-                        # file = f"{variable}.npz"
-                        # data = np.load(path.join(data_folder, file), allow_pickle=True)
-                        # if df.empty:
-                        #     df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable])
-                        # else:
-                        #     df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[variable]))
 
+                if artifact == "met-resample":
+                    for variable in self.met_variables:
                         filepath = path.join(data_folder, f"{variable}.npz")
                         data = np.load(filepath, allow_pickle=True)
-                        variable_data = {}  # Dictionary to hold data for each statistic
+                        variable_data = {}
 
-                        # Extract each statistic (mean, min, max) for the current variable
+                        # Extract statistics (mean, min, max)
                         for stat in ['mean', 'min', 'max']:
-                            column_name = f"{variable}_{stat}"  # Construct column name
+                            column_name = f"{variable}_{stat}"
                             variable_data[stat] = pd.Series(data[stat], index=data['x'], name=column_name)
 
-                        # Concatenate the statistics for the current variable into a single DataFrame
                         variable_df = pd.concat(variable_data.values(), axis=1)
-
-                        # Append the DataFrame for the current variable to the list
-                        dfs.append(variable_df)
-
-                    # Concatenate all DataFrames in the list along the columns axis
-                    if df.empty:
-                        df = pd.concat(dfs, axis=1).copy()
-                    else:
-                        df = df.join(pd.concat(dfs, axis=1))
+                        df_list.append(variable_df)
 
                 elif artifact == "laqn-regional":
                     for variable in self.laqn_variables:
@@ -83,27 +67,20 @@ class HealthModel():
                                 column = file.replace(".npz", "")
                                 filepath = path.join(data_folder, file)
                                 data = np.load(filepath, allow_pickle=True)
-                                # print(data["y"].shape)
-                                if df.empty:
-                                    df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
-                                else:
-                                    df = df.join(pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column]))
+                                laqn_df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[column])
+                                df_list.append(laqn_df)
 
                 elif artifact == "income-regional":
-                    dfs = []
                     for variable in self.income_variables:
                         for file in listdir(data_folder):
                             if variable in file:
                                 data = np.load(path.join(data_folder, file), allow_pickle=True)
-                                feature_df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
-                                dfs.append(feature_df)
-                    # Concatenate all DataFrames in the list along the columns axis
-                    if df.empty:
-                        df = pd.concat(dfs, axis=1).copy()
-                    else:
-                        df = df.join(pd.concat(dfs, axis=1))
-                else:
-                    print(f"input_artifact {artifact} not recognised.")
+                                income_df = pd.DataFrame(index=pd.DatetimeIndex(data["x"]), data=data["y"], columns=[file.replace(".npz", "")])
+                                df_list.append(income_df)
+
+            # Concatenate all DataFrames in df_list at once
+            df = pd.concat(df_list, axis=1)
+            
             input_columns = df.columns
             print("input columns: ", input_columns)
 
